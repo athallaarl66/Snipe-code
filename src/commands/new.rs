@@ -1,9 +1,13 @@
-use dialoguer::{Select, Input, Confirm};
+use dialoguer::{Select, Input};
 use console::Style;
 
 use crate::template::TemplateRegistry;
 use crate::stack::{self, FRONTEND_STACKS, BACKEND_STACKS, DATABASE_STACKS};
 use crate::generator::{GenerateConfig, generate, dry_run_preview, folder_exists};
+use crate::git;
+use crate::cicd;
+use crate::docker;
+use crate::ai_workspace;
 
 pub fn run(dry_run: bool) {
     let header_style = Style::new().bold().cyan();
@@ -97,7 +101,7 @@ pub fn run(dry_run: bool) {
 
     // Build config
     let config = GenerateConfig {
-        project_name,
+        project_name: project_name.clone(),
         template_id: selected_template.id.to_string(),
         frontend: selected_frontend.id.to_string(),
         backend: selected_backend.id.to_string(),
@@ -121,6 +125,49 @@ pub fn run(dry_run: bool) {
         }
         Err(e) => {
             println!("Error: {}", e);
+            return;
         }
     }
+
+    // Post-generation steps
+    println!("\nPost-generation setup...");
+
+    // CI/CD
+    if let Err(e) = cicd::generate_ci_cd(&project_name, selected_frontend.id, selected_backend.id) {
+        println!("  CI/CD warning: {}", e);
+    } else if selected_frontend.id != "none" || selected_backend.id != "none" {
+        println!("  ✓ CI/CD workflow generated");
+    }
+
+    // Docker Compose
+    if let Err(e) = docker::generate_docker_compose(&project_name, selected_database.id, selected_backend.id) {
+        println!("  Docker warning: {}", e);
+    } else if selected_database.id != "none" {
+        println!("  ✓ Docker Compose generated");
+    }
+
+    // AI Workspace
+    if let Err(e) = ai_workspace::generate_ai_workspace(&project_name) {
+        println!("  AI Workspace warning: {}", e);
+    } else {
+        println!("  ✓ AI Workspace created");
+    }
+
+    // Git
+    if git::is_git_installed() {
+        if let Err(e) = git::init(&project_name) {
+            println!("  Git init warning: {}", e);
+        } else {
+            println!("  ✓ Git initialized");
+            if let Err(e) = git::add_and_commit(&project_name, &selected_template.name, selected_frontend.name, selected_backend.name) {
+                println!("  Git commit warning: {}", e);
+            } else {
+                println!("  ✓ Initial commit made");
+            }
+        }
+    } else {
+        println!("  ⚠ Git not installed — skipping git init");
+    }
+
+    println!("\n{}", success_style.apply_to(format!("Done! Project '{}' is ready.", project_name)));
 }
