@@ -20,7 +20,7 @@ fn test_database_stacks_count() {
 fn test_get_frontend_folders_nextjs() {
     let folders = stack::get_frontend_folders("nextjs").unwrap();
     assert!(folders.contains(&"src/components/ui/"));
-    assert!(folders.contains(&"src/pages/"));
+    assert!(folders.contains(&"src/app/"));
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn test_generate_creates_folders() {
     };
     let result = generator::generate(&config).unwrap();
     assert!(result.folders.iter().any(|f| f.contains("components/ui/")));
-    assert!(result.folders.iter().any(|f| f.contains("pages/")));
+    assert!(result.folders.iter().any(|f| f.contains("app/")));
 
     // Cleanup
     let _ = std::fs::remove_dir_all("test-project-gen");
