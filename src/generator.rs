@@ -16,6 +16,10 @@ pub struct GenerateResult {
     pub files: Vec<String>,
 }
 
+pub fn folder_exists(project_name: &str) -> bool {
+    Path::new(project_name).exists()
+}
+
 pub fn generate(config: &GenerateConfig) -> Result<GenerateResult, String> {
     if config.project_name.is_empty() {
         return Err("Project name cannot be empty".to_string());
@@ -24,7 +28,10 @@ pub fn generate(config: &GenerateConfig) -> Result<GenerateResult, String> {
     let root = Path::new(&config.project_name);
     let mut result = GenerateResult { folders: Vec::new(), files: Vec::new() };
 
-    // Create root directory
+    // Create root directory (overwrite if exists)
+    if root.exists() {
+        fs::remove_dir_all(root).map_err(|e| e.to_string())?;
+    }
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
 
     // Get template folders
@@ -277,6 +284,12 @@ pub fn dry_run_preview(config: &GenerateConfig) -> String {
     }
 
     let mut entries: Vec<String> = Vec::new();
+
+    // Check if folder exists
+    let root = Path::new(&config.project_name);
+    if root.exists() {
+        entries.push("[WARNING] Folder already exists — will be overwritten".to_string());
+    }
 
     // Collect template folders
     let template_folders = crate::template::TemplateRegistry::get(&config.template_id)

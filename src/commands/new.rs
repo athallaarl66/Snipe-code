@@ -1,13 +1,14 @@
-use dialoguer::{Select, Input};
+use dialoguer::{Select, Input, Confirm};
 use console::Style;
 
 use crate::template::TemplateRegistry;
 use crate::stack::{self, FRONTEND_STACKS, BACKEND_STACKS, DATABASE_STACKS};
-use crate::generator::{GenerateConfig, generate, dry_run_preview};
+use crate::generator::{GenerateConfig, generate, dry_run_preview, folder_exists};
 
 pub fn run(dry_run: bool) {
     let header_style = Style::new().bold().cyan();
     let success_style = Style::new().bold().green();
+    let warning_style = Style::new().bold().yellow();
 
     println!("{}", header_style.apply_to("SNIPE-CODE CLI"));
     println!("Enterprise Dev-Forge\n");
@@ -73,6 +74,27 @@ pub fn run(dry_run: bool) {
         .interact_text()
         .expect("Failed to read project name");
 
+    // 7. Check folder collision
+    if folder_exists(&project_name) {
+        println!("{}", warning_style.apply_to(format!(
+            "\nError: Folder \"{}\" already exists", project_name
+        )));
+        
+        let options = vec!["Overwrite (delete existing)", "Cancel"];
+        let choice = Select::new()
+            .with_prompt("What to do?")
+            .items(&options)
+            .default(1)
+            .interact()
+            .expect("Failed to read choice");
+
+        if choice == 1 {
+            println!("Cancelled. No changes made.");
+            return;
+        }
+        println!("Overwriting existing folder...");
+    }
+
     // Build config
     let config = GenerateConfig {
         project_name,
@@ -93,7 +115,7 @@ pub fn run(dry_run: bool) {
     println!("\nGenerating project structure...");
     match generate(&config) {
         Ok(result) => {
-            println!("{}", success_style.apply_to(format!("Project created!")));
+            println!("{}", success_style.apply_to("Project created!"));
             println!("  Folders: {}", result.folders.len());
             println!("  Files: {}", result.files.len());
         }
