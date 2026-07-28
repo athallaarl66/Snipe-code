@@ -5,17 +5,31 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() > 1 && args[1] == "audit" {
-        // snipe-code audit [path] [--export md,pdf]
-        let path = args.get(2).map(|s| s.as_str()).unwrap_or(".");
-        let export_format = args.iter()
-            .find(|a| a.starts_with("--export"))
-            .and_then(|a| a.split('=').nth(1))
-            .unwrap_or("md");
+        // snipe-code audit [path] [--export md,pdf,docx]
+        let mut path = ".";
+        let mut export_format = "md".to_string();
 
-        match audit::run_audit(path, export_format) {
-            Ok(report) => {
-                println!("Audit complete! Report saved to {}/Audit_Report.md", path);
-                println!("\n{}", report);
+        let mut i = 2;
+        while i < args.len() {
+            if args[i] == "--export" {
+                if let Some(val) = args.get(i + 1) {
+                    export_format = val.clone();
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            } else {
+                path = &args[i];
+                i += 1;
+            }
+        }
+
+        match audit::run_audit(path, &export_format) {
+            Ok(files) => {
+                println!("Audit complete! Exported files:");
+                for file in &files {
+                    println!("  - {}/{}", path, file);
+                }
             }
             Err(e) => {
                 println!("Audit failed: {}", e);
