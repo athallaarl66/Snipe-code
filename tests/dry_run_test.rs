@@ -15,7 +15,6 @@ fn test_dry_run_does_not_create_files() {
     let config = default_config();
     let output = generator::dry_run_preview(&config);
 
-    // Output is a string, no actual files created
     assert!(output.contains("my-project/"));
     assert!(output.contains("(0 files created — dry run mode)"));
 }
@@ -26,7 +25,7 @@ fn test_dry_run_output_contains_frontend_folders() {
     let output = generator::dry_run_preview(&config);
 
     assert!(output.contains("frontend/src/components/ui/"));
-    assert!(output.contains("frontend/src/pages/"));
+    assert!(output.contains("frontend/src/app/"));
     assert!(output.contains("frontend/src/hooks/"));
 }
 
@@ -113,6 +112,37 @@ fn test_dry_run_tree_structure_format() {
     let config = default_config();
     let output = generator::dry_run_preview(&config);
 
-    // Verify tree characters present
     assert!(output.contains("├──") || output.contains("└──"));
+}
+
+#[test]
+fn test_dry_run_shows_frontend_files() {
+    let config = GenerateConfig {
+        project_name: "fe-files".to_string(),
+        template_id: "none".to_string(),
+        frontend: "nextjs".to_string(),
+        backend: "none".to_string(),
+        database: "none".to_string(),
+    };
+    let output = generator::dry_run_preview(&config);
+
+    assert!(output.contains("frontend/package.json"));
+    assert!(output.contains("frontend/tsconfig.json"));
+    assert!(output.contains("frontend/next.config.js"));
+}
+
+#[test]
+fn test_dry_run_shows_backend_files() {
+    let config = GenerateConfig {
+        project_name: "be-files".to_string(),
+        template_id: "none".to_string(),
+        frontend: "none".to_string(),
+        backend: "nestjs".to_string(),
+        database: "none".to_string(),
+    };
+    let output = generator::dry_run_preview(&config);
+
+    assert!(output.contains("backend/package.json"));
+    assert!(output.contains("backend/tsconfig.json"));
+    assert!(output.contains("backend/src/main.ts"));
 }

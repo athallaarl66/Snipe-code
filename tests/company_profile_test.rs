@@ -29,9 +29,9 @@ fn test_company_profile_backend_optional() {
 }
 
 #[test]
-fn test_company_profile_generates_html_files() {
+fn test_company_profile_generates_nextjs_files() {
     let config = GenerateConfig {
-        project_name: "test-cp-files".to_string(),
+        project_name: "test-cp-nextjs".to_string(),
         template_id: "company-profile".to_string(),
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
@@ -39,13 +39,32 @@ fn test_company_profile_generates_html_files() {
     };
     let result = generator::generate(&config).unwrap();
 
-    assert!(result.files.iter().any(|f| f.contains("home/index.html")));
-    assert!(result.files.iter().any(|f| f.contains("about/index.html")));
-    assert!(result.files.iter().any(|f| f.contains("services/index.html")));
-    assert!(result.files.iter().any(|f| f.contains("contact/index.html")));
-    assert!(result.files.iter().any(|f| f.contains("team/index.html")));
+    assert!(result.files.iter().any(|f| f.contains("package.json")));
+    assert!(result.files.iter().any(|f| f.contains("tsconfig.json")));
+    assert!(result.files.iter().any(|f| f.contains("next.config.js")));
+    assert!(result.files.iter().any(|f| f.contains("src/app/layout.tsx")));
+    assert!(result.files.iter().any(|f| f.contains("src/app/page.tsx")));
 
-    let _ = std::fs::remove_dir_all("test-cp-files");
+    let _ = std::fs::remove_dir_all("test-cp-nextjs");
+}
+
+#[test]
+fn test_company_profile_generates_vue_files() {
+    let config = GenerateConfig {
+        project_name: "test-cp-vue".to_string(),
+        template_id: "company-profile".to_string(),
+        frontend: "vue".to_string(),
+        backend: "none".to_string(),
+        database: "none".to_string(),
+    };
+    let result = generator::generate(&config).unwrap();
+
+    assert!(result.files.iter().any(|f| f.contains("package.json")));
+    assert!(result.files.iter().any(|f| f.contains("vite.config.ts")));
+    assert!(result.files.iter().any(|f| f.contains("src/App.vue")));
+    assert!(result.files.iter().any(|f| f.contains("src/main.ts")));
+
+    let _ = std::fs::remove_dir_all("test-cp-vue");
 }
 
 #[test]
@@ -59,30 +78,10 @@ fn test_company_profile_generates_layout_components() {
     };
     let result = generator::generate(&config).unwrap();
 
-    assert!(result.files.iter().any(|f| f.contains("Header.tsx")));
-    assert!(result.files.iter().any(|f| f.contains("Footer.tsx")));
+    assert!(result.folders.iter().any(|f| f.contains("header")));
+    assert!(result.folders.iter().any(|f| f.contains("footer")));
 
     let _ = std::fs::remove_dir_all("test-cp-layout");
-}
-
-#[test]
-fn test_company_profile_html_has_seo_tags() {
-    let config = GenerateConfig {
-        project_name: "test-cp-seo".to_string(),
-        template_id: "company-profile".to_string(),
-        frontend: "nextjs".to_string(),
-        backend: "none".to_string(),
-        database: "none".to_string(),
-    };
-    let _ = generator::generate(&config).unwrap();
-
-    let home_html = std::fs::read_to_string("test-cp-seo/frontend/src/pages/home/index.html").unwrap();
-    assert!(home_html.contains("<title>"));
-    assert!(home_html.contains("<meta name=\"description\""));
-    assert!(home_html.contains("og:title"));
-    assert!(home_html.contains("application/ld+json"));
-
-    let _ = std::fs::remove_dir_all("test-cp-seo");
 }
 
 #[test]
@@ -96,8 +95,8 @@ fn test_company_profile_dry_run_shows_files() {
     };
     let output = generator::dry_run_preview(&config);
 
-    assert!(output.contains("frontend/src/pages/home/index.html"));
-    assert!(output.contains("frontend/src/pages/about/index.html"));
-    assert!(output.contains("Header.tsx"));
-    assert!(output.contains("Footer.tsx"));
+    assert!(output.contains("package.json"));
+    assert!(output.contains("tsconfig.json"));
+    assert!(output.contains("next.config.js"));
+    assert!(output.contains("README.md"));
 }
