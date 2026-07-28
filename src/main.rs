@@ -1,6 +1,8 @@
-use snipe_code::template::TemplateRegistry;
+use snipe_code::commands::new;
 
 fn main() {
-    let templates = TemplateRegistry::load_all();
-    println!("Loaded {} templates", templates.len());
+    let args: Vec<String> = std::env::args().collect();
+    let dry_run = args.contains(&"--dry-run".to_string());
+
+    new::run(dry_run);
 }
