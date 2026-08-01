@@ -17,7 +17,7 @@ Memberikan pengguna template preset siap pakai untuk berbagai kebutuhan (IoT Das
 
 ### 1.2 Scope
 **In Scope:**
-- Template preset: IoT Dashboard, Company Profile, Portfolio, Blog/Posts
+- Template preset: Company Profile, Portfolio, Blog/Posts
 - Opsi "No Template" — hanya generate struktur folder sesuai stack
 - Pilihan stack dinamis (Frontend + Backend + DB/ORM)
 - Struktur folder standar Clean Architecture / DDD
@@ -25,6 +25,7 @@ Memberikan pengguna template preset siap pakai untuk berbagai kebutuhan (IoT Das
 - Git init + CI/CD pipeline auto-generated
 
 **Out of Scope:**
+- Template IoT Dashboard (deferred)
 - Template marketplace / community templates (future)
 - UI component auto-installer (fitur terpisah)
 - Deployment scripts ke cloud provider
@@ -70,7 +71,7 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 **So that** saya langsung dapat struktur proyek yang sesuai kebutuhan
 
 **Acceptance Criteria:**
-- [ ] `snipe-code new` menampilkan daftar template: IoT Dashboard, Company Profile, Portfolio, Blog
+- [ ] `snipe-code new` menampilkan daftar template: Company Profile, Portfolio, Blog
 - [ ] Setelah pilih template, bisa pilih stack (Frontend + Backend + DB/ORM)
 - [ ] Template menentukan struktur folder tambahan (misal: dashboard/ ada layout khusus, blog/ ada posts/)
 - [ ] Semua file yang digenerate punya komentar security header
@@ -101,19 +102,6 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 - [ ] Output jelas: "Would create: frontend/src/pages/, backend/src/controllers/..."
 
 **Priority:** Should Have
-
-#### US-004: Template IoT Dashboard
-**As a** developer IoT
-**I want** template dengan struktur dashboard monitoring
-**So that** saya langsung bisa develop fitur IoT tanpa setup layout
-
-**Acceptance Criteria:**
-- [ ] Frontend: layout sidebar + header + real-time chart area
-- [ ] Backend: struktur WebSocket handler, controller untuk data sensor
-- [ ] Structure: `dashboard/` terisolasi dengan `components/`, `hooks/`, `pages/`
-- [ ] Docker compose untuk DB + MQTT broker
-
-**Priority:** Must Have
 
 #### US-005: Template Company Profile
 **As a** freelancer
@@ -154,12 +142,36 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 
 **Priority:** Should Have
 
-### 4.2 Functional Requirements by Module
+#### US-008: Security Audit & Export
+**As a** security conscious developer
+**I want** melakukan audit cepat pada folder proyek
+**So that** saya tahu apakah best-practice dasar sudah terpenuhi
+
+**Acceptance Criteria:**
+- [ ] `snipe-code audit` men-scan keberadaan .env.example, .gitignore, dll.
+- [ ] Bisa mengekspor laporan ke format Markdown, PDF, dan DOCX.
+- [ ] Output file audit tersimpan di direktori target.
+
+**Priority:** Must Have
+
+#### US-009: AI Workspace Generation
+**As a** developer who uses AI
+**I want** struktur proyek yang di-generate sudah "AI-Ready"
+**So that** saya bisa langsung menggunakan Cursor/Windsurf dengan context yang tepat.
+
+**Acceptance Criteria:**
+- [ ] Otomatis membuat file `.cursorrules` dengan instruksi stack yang dipilih.
+- [ ] Membuat file `AGENTS.md` untuk panduan AI Agent.
+
+**Priority:** Must Have
+
+
+### 4.1 User Stories
 
 #### Module 1: Template Selector
 - **FR-TS-01:** CLI menampilkan daftar template interaktif (pake dialoguer / arrow keys)
 - **FR-TS-02:** Setiap template punya deskripsi 1 baris
-- **FR-TS-03:** Opsi "No Template" selalu ada di urutan pertama
+- **FR-TS-03:** Opsi "No Template" tersedia sebagai default/clean start
 - **FR-TS-04:** Setelah pilih template, lanjut ke stack selection flow
 
 #### Module 2: Stack Selection
@@ -212,7 +224,6 @@ $ snipe-code new
 
 ? Pilih Template:
   No Template — clean start (recommended)
-  Industrial IoT Dashboard
   Company Profile
   Portfolio
   Blog / Posts

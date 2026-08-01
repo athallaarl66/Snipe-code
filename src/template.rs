@@ -106,7 +106,12 @@ const TEMPLATES: &[&str] = &[
                 "frontend/src/components/sections/contact/",
                 "frontend/src/data/"
             ],
-            "files": [],
+            "files": [
+                {
+                    "path": "frontend/src/data/projects.json",
+                    "template_source": "portfolio-projects"
+                }
+            ],
             "rules": {
                 "require_backend": false,
                 "require_database": false,
@@ -129,7 +134,16 @@ const TEMPLATES: &[&str] = &[
                 "frontend/src/components/blog/post-content/",
                 "frontend/src/components/blog/author-page/"
             ],
-            "files": [],
+            "files": [
+                {
+                    "path": "frontend/src/posts/hello-world.mdx",
+                    "template_source": "blog-sample-post"
+                },
+                {
+                    "path": "frontend/public/rss.xml",
+                    "template_source": "blog-rss-feed"
+                }
+            ],
             "rules": {
                 "require_backend": false,
                 "require_database": false,
