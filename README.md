@@ -22,23 +22,44 @@ SNIPE-CODE adalah tool CLI berbasis Rust yang dirancang untuk mempercepat inisia
 
 ## 🚀 Cara Instalasi
 
-Pastikan Anda sudah menginstall [Rust & Cargo](https://rustup.rs/).
+Ada 3 cara — pilih sesuai kebutuhan. Semua butuh binary hasil compile; bedanya cuma di mana binary itu ditaruh.
 
-1. **Clone Repository**:
-   ```bash
-   git clone https://github.com/athallaarl66/snipe-code.git
-   cd snipe-code
-   ```
+### Opsi A — Build dari Source (untuk developer / punya Rust)
 
-2. **Build Project**:
-   ```bash
-   cargo build --release
-   ```
+```bash
+git clone https://github.com/athallaarl66/snipe-code.git
+cd snipe-code
+cargo build --release
+```
 
-3. **Install ke System (Opsional)**:
-   ```bash
-   cargo install --path .
-   ```
+Binary ada di `target/release/snipe-code.exe`. Jalankan langsung dari sana, atau salin ke folder mana pun (portable — bisa dibawa ke device lain tanpa install apa pun).
+
+**Catatan storage:** folder `target/` hasil compile bisa ratusan MB. Binary-nya sendiri kecil (~5MB). Setelah selesai, hapus artifact compile dengan:
+```bash
+cargo clean
+```
+(exe di `target/release/` ikut terhapus — salin dulu ke tempat permanen kalau mau dipakai terus.)
+
+### Opsi B — Pakai Release Binary (untuk end user / tanpa Rust)
+
+Tidak perlu install Rust. Terima saja file `snipe-code.exe` dari developer/rilis, lalu:
+- Taruh di folder mana pun, jalankan: `snipe-code.exe audit . --export pdf,docx`
+- Atau tambahkan folder-nya ke PATH biar bisa ketik `snipe-code` dari mana saja
+
+### Opsi C — Install ke System (agar perintah `snipe-code` dikenali dari mana saja)
+
+```bash
+cargo install --path .
+```
+
+Menyalin binary ke `~/.cargo/bin` (sudah di PATH). Setelah ini `snipe-code` bisa dipanggil dari direktori mana pun.
+
+> **⚠️ Opsional? Tidak.** Tanpa salah satu cara di atas, perintah `snipe-code` tidak akan dikenali (`'snipe-code' is not recognized`). Pilih minimal satu opsi — A, B, atau C.
+
+### 🗑️ Uninstall
+
+- **Via cargo** (Opsi C): `cargo uninstall snipe-code`
+- **Portable exe** (Opsi A/B): cukup hapus file `snipe-code.exe` — tidak ada registry/system files yang disentuh
 
 ---
 

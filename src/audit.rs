@@ -4,6 +4,29 @@ use std::io::BufWriter;
 
 use printpdf::*;
 use docx_rs::*;
+use dialoguer::MultiSelect;
+
+/// Tampilkan MultiSelect interaktif untuk memilih format export audit.
+/// Markdown pre-selected. Loop sampai minimal satu format dipilih.
+pub fn select_export_formats() -> Vec<String> {
+    let options = ["Markdown (.md)", "PDF (.pdf)", "DOCX (.docx)"];
+    let ids = ["md", "pdf", "docx"];
+
+    loop {
+        let picked = MultiSelect::new()
+            .with_prompt("Pilih format export (spasi = pilih, Enter = lanjut)")
+            .items(&options)
+            .defaults(&[true, false, false])
+            .interact()
+            .expect("Failed to read format selection");
+
+        if picked.is_empty() {
+            println!("Minimal satu format harus dipilih.");
+            continue;
+        }
+        return picked.iter().map(|&i| ids[i].to_string()).collect();
+    }
+}
 
 pub fn run_audit(project_path: &str, export_format: &str) -> Result<Vec<String>, String> {
     let path = Path::new(project_path);
