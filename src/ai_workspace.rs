@@ -9,7 +9,9 @@ pub fn generate_ai_workspace(project_path: &str) -> Result<(), String> {
     // Generate rules for different AI IDEs
     fs::write(workspace_dir.join("rules.md"), windsurf_rules()).map_err(|e| e.to_string())?;
     fs::write(workspace_dir.join("rules.mdc"), cursor_rules()).map_err(|e| e.to_string())?;
-    fs::write(workspace_dir.join("audit/.gitkeep"), "").map_err(|e| e.to_string())?;
+    let audit_dir = workspace_dir.join("audit");
+    fs::create_dir_all(&audit_dir).map_err(|e| e.to_string())?;
+    fs::write(audit_dir.join(".gitkeep"), "").map_err(|e| e.to_string())?;
 
     Ok(())
 }

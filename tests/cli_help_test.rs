@@ -1,5 +1,5 @@
-use std::process::Command;
 use std::fs;
+use std::process::Command;
 
 const BIN: &str = env!("CARGO_BIN_EXE_snipe-code");
 
@@ -19,10 +19,19 @@ fn test_help_lists_commands_and_faq() {
     let (stdout, ok) = run(&["--help"]);
     assert!(ok);
     assert!(stdout.contains("new"), "help harus menyebut command new");
-    assert!(stdout.contains("audit"), "help harus menyebut command audit");
+    assert!(
+        stdout.contains("audit"),
+        "help harus menyebut command audit"
+    );
     assert!(stdout.contains("FAQ"), "help harus menyertakan FAQ");
-    assert!(stdout.contains("--dry-run"), "help harus menyebut opsi --dry-run");
-    assert!(stdout.contains("--export"), "help harus menyebut opsi --export");
+    assert!(
+        stdout.contains("--dry-run"),
+        "help harus menyebut opsi --dry-run"
+    );
+    assert!(
+        stdout.contains("--export"),
+        "help harus menyebut opsi --export"
+    );
 }
 
 #[test]

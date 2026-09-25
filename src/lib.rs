@@ -1,10 +1,9 @@
-pub mod template;
-pub mod stack;
-pub mod generator;
-pub mod commands;
-pub mod git;
-pub mod cicd;
-pub mod docker;
-pub mod ui_components;
 pub mod ai_workspace;
 pub mod audit;
+pub mod cicd;
+pub mod commands;
+pub mod docker;
+pub mod generator;
+pub mod git;
+pub mod stack;
+pub mod template;

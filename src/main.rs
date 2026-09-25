@@ -1,32 +1,40 @@
-use snipe_code::commands::new;
 use snipe_code::audit;
+use snipe_code::commands::new;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let dry_run = args.contains(&"--dry-run".to_string());
+    let code = std::process::exit;
 
     match args.get(1).map(|s| s.as_str()) {
         // Tanpa command → wizard (backward compatible)
-        None => new::run(false),
+        None => run_new(false),
         Some("help") | Some("--help") | Some("-h") => match args.get(2) {
             Some(cmd) => print_command_help(cmd),
             None => print_help(),
         },
         Some("faq") => print_faq(),
-        Some("new") => new::run(dry_run),
+        Some("new") => run_new(dry_run),
         Some("audit") => run_audit_cmd(&args),
         // Backward compatible: snipe-code --dry-run
-        Some("--dry-run") => new::run(true),
+        Some("--dry-run") => run_new(true),
         Some(other) if other.starts_with('-') => {
             println!("Unknown option: {}", other);
             println!("Run 'snipe-code help' untuk daftar perintah.");
-            std::process::exit(1);
+            code(1);
         }
         Some(other) => {
             println!("Unknown command: {}", other);
             println!("Run 'snipe-code help' untuk daftar perintah.");
-            std::process::exit(1);
+            code(1);
         }
+    }
+}
+
+fn run_new(dry_run: bool) {
+    if let Err(e) = new::run(dry_run) {
+        eprintln!("snipe-code: {}", e);
+        std::process::exit(1);
     }
 }
 
