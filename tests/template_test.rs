@@ -24,7 +24,11 @@ fn test_all_templates_have_metadata() {
     let templates = TemplateRegistry::load_all();
     for t in templates {
         assert!(!t.name.is_empty(), "name is empty for {}", t.id);
-        assert!(!t.description.is_empty(), "description is empty for {}", t.id);
+        assert!(
+            !t.description.is_empty(),
+            "description is empty for {}",
+            t.id
+        );
         assert!(!t.icon.is_empty(), "icon is empty for {}", t.id);
     }
 }

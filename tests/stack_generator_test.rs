@@ -1,5 +1,7 @@
-use snipe_code::stack;
+mod common;
+
 use snipe_code::generator::{self, GenerateConfig};
+use snipe_code::stack;
 
 #[test]
 fn test_frontend_stacks_count() {
@@ -50,74 +52,66 @@ fn test_validate_selection_backend_only() {
 
 #[test]
 fn test_generate_creates_folders() {
+    let _ws = common::Workspace::new("gen-folders");
     let config = GenerateConfig {
-        project_name: "test-project-gen".to_string(),
+        project_name: "app".to_string(),
         template_id: "none".to_string(),
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
     };
-    let result = generator::generate(&config).unwrap();
+    let result = generator::generate(&config, false).unwrap();
     assert!(result.folders.iter().any(|f| f.contains("components/ui/")));
     assert!(result.folders.iter().any(|f| f.contains("app/")));
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all("test-project-gen");
 }
 
 #[test]
 fn test_generate_creates_security_files() {
+    let _ws = common::Workspace::new("gen-security");
     let config = GenerateConfig {
-        project_name: "test-project-security".to_string(),
+        project_name: "app".to_string(),
         template_id: "none".to_string(),
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
     };
-    let result = generator::generate(&config).unwrap();
+    let result = generator::generate(&config, false).unwrap();
     assert!(result.files.contains(&".env.example".to_string()));
     assert!(result.files.contains(&".gitignore".to_string()));
     assert!(result.files.contains(&"README.md".to_string()));
 
     // Verify files exist
-    assert!(std::path::Path::new("test-project-security/.env.example").exists());
-    assert!(std::path::Path::new("test-project-security/.gitignore").exists());
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all("test-project-security");
+    assert!(std::path::Path::new("app/.env.example").exists());
+    assert!(std::path::Path::new("app/.gitignore").exists());
 }
 
 #[test]
 fn test_generate_frontend_only_no_backend_folders() {
+    let _ws = common::Workspace::new("gen-fe");
     let config = GenerateConfig {
-        project_name: "test-project-fe".to_string(),
+        project_name: "app".to_string(),
         template_id: "none".to_string(),
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
     };
-    let result = generator::generate(&config).unwrap();
+    let result = generator::generate(&config, false).unwrap();
     assert!(!result.folders.iter().any(|f| f.starts_with("backend/")));
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all("test-project-fe");
 }
 
 #[test]
 fn test_generate_backend_only_no_frontend_folders() {
+    let _ws = common::Workspace::new("gen-be");
     let config = GenerateConfig {
-        project_name: "test-project-be".to_string(),
+        project_name: "app".to_string(),
         template_id: "none".to_string(),
         frontend: "none".to_string(),
         backend: "nestjs".to_string(),
         database: "none".to_string(),
     };
-    let result = generator::generate(&config).unwrap();
+    let result = generator::generate(&config, false).unwrap();
     assert!(!result.folders.iter().any(|f| f.starts_with("frontend/")));
     assert!(result.folders.iter().any(|f| f.contains("controllers/")));
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all("test-project-be");
 }
 
 #[test]
@@ -129,6 +123,57 @@ fn test_generate_empty_name_fails() {
         backend: "none".to_string(),
         database: "none".to_string(),
     };
-    let result = generator::generate(&config);
+    let result = generator::generate(&config, false);
     assert!(result.is_err());
+}
+
+#[test]
+fn test_generate_rejects_unsafe_names() {
+    for bad in [
+        "a/b",
+        "a\\b",
+        "..",
+        ".",
+        ".hidden",
+        "con",
+        "CON",
+        "nul.txt",
+        "my-project.",
+        "my project ",
+        "a:b",
+        "a*b",
+        "/abs",
+    ] {
+        let config = GenerateConfig {
+            project_name: bad.to_string(),
+            template_id: "none".to_string(),
+            frontend: "none".to_string(),
+            backend: "none".to_string(),
+            database: "none".to_string(),
+        };
+        assert!(
+            generator::generate(&config, false).is_err(),
+            "name '{}' should be rejected",
+            bad
+        );
+    }
+}
+
+#[test]
+fn test_generate_accepts_safe_names() {
+    for good in ["my-project", "blog", "app2", "portfolio_site"] {
+        let _ws = common::Workspace::new(&format!("gen-ok-{}", good));
+        let config = GenerateConfig {
+            project_name: good.to_string(),
+            template_id: "none".to_string(),
+            frontend: "none".to_string(),
+            backend: "none".to_string(),
+            database: "none".to_string(),
+        };
+        assert!(
+            generator::generate(&config, false).is_ok(),
+            "name '{}' should be accepted",
+            good
+        );
+    }
 }

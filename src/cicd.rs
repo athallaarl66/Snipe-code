@@ -13,15 +13,16 @@ pub fn generate_ci_cd(project_path: &str, frontend: &str, backend: &str) -> Resu
 }
 
 fn workflow_content(frontend: &str, backend: &str) -> String {
-    let mut steps = Vec::new();
-    steps.push("name: CI/CD Pipeline".to_string());
-    steps.push("on:".to_string());
-    steps.push("  push:".to_string());
-    steps.push("    branches: [main, develop]".to_string());
-    steps.push("  pull_request:".to_string());
-    steps.push("    branches: [main]".to_string());
-    steps.push("".to_string());
-    steps.push("jobs:".to_string());
+    let mut steps = vec![
+        "name: CI/CD Pipeline".to_string(),
+        "on:".to_string(),
+        "  push:".to_string(),
+        "    branches: [main, develop]".to_string(),
+        "  pull_request:".to_string(),
+        "    branches: [main]".to_string(),
+        "".to_string(),
+        "jobs:".to_string(),
+    ];
 
     // Frontend job
     if frontend != "none" {
@@ -38,7 +39,7 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
                 steps.push("      - uses: actions/setup-node@v4".to_string());
                 steps.push("        with:".to_string());
                 steps.push("          node-version: '20'".to_string());
-                steps.push("      - run: npm ci".to_string());
+                steps.push("      - run: npm install".to_string());
                 steps.push("      - run: npm run lint".to_string());
                 steps.push("      - run: npm run build".to_string());
             }
@@ -62,7 +63,7 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
                 steps.push("      - uses: actions/setup-node@v4".to_string());
                 steps.push("        with:".to_string());
                 steps.push("          node-version: '20'".to_string());
-                steps.push("      - run: npm ci".to_string());
+                steps.push("      - run: npm install".to_string());
                 steps.push("      - run: npm run lint".to_string());
                 steps.push("      - run: npm run build".to_string());
             }

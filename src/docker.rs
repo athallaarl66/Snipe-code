@@ -1,7 +1,11 @@
 use std::fs;
 use std::path::Path;
 
-pub fn generate_docker_compose(project_path: &str, database: &str, backend: &str) -> Result<(), String> {
+pub fn generate_docker_compose(
+    project_path: &str,
+    database: &str,
+    backend: &str,
+) -> Result<(), String> {
     if database == "none" && backend == "none" {
         return Ok(());
     }
@@ -71,7 +75,9 @@ fn docker_compose_content(database: &str, backend: &str) -> String {
         lines.push("    environment:".to_string());
         match database {
             "postgresql" => {
-                lines.push("      DATABASE_URL: postgresql://user:password@postgres:5432/mydb".to_string());
+                lines.push(
+                    "      DATABASE_URL: postgresql://user:password@postgres:5432/mydb".to_string(),
+                );
             }
             "mysql" => {
                 lines.push("      DATABASE_URL: mysql://user:password@mysql:3306/mydb".to_string());

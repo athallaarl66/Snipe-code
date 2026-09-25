@@ -1,0 +1,267 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUST_TOOLCHAIN: 1.85.0
+
+jobs:
+  source-quality:
+    name: Source quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-source-quality
+      - name: Report Rust version
+        run: |
+          rustc --version --verbose
+          cargo --version
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Run Rust tests
+        run: cargo test --all-targets --all-features
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: source-quality
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            binary: snipe-code.exe
+            archive: zip
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            binary: snipe-code
+            archive: tar.gz
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            binary: snipe-code
+            archive: tar.gz
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $binaryPath = Join-Path 'target' '${{ matrix.target }}' 'release' '${{ matrix.binary }}'
+          if (-not (Test-Path -LiteralPath $binaryPath)) {
+            throw "Missing release binary: $binaryPath"
+          }
+          if (-not (Test-Path -LiteralPath 'README.md')) {
+            throw 'README.md is missing'
+          }
+          $packageRoot = Join-Path $env:RUNNER_TEMP 'package-${{ matrix.target }}'
+          $archivePath = Join-Path $env:RUNNER_TEMP 'snipe-code-${{ matrix.target }}.zip'
+          New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
+          Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $packageRoot '${{ matrix.binary }}')
+          Copy-Item -LiteralPath 'README.md' -Destination (Join-Path $packageRoot 'README.md')
+          if (Test-Path -LiteralPath 'LICENSE') {
+            Copy-Item -LiteralPath 'LICENSE' -Destination (Join-Path $packageRoot 'LICENSE')
+          }
+          $sourceRevision = (git rev-parse HEAD).Trim()
+          [System.IO.File]::WriteAllText((Join-Path $packageRoot 'SOURCE_REVISION.txt'), $sourceRevision, [System.Text.Encoding]::ASCII)
+          Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $archivePath -Force
+      - name: Package Unix artifact
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary_path="target/${{ matrix.target }}/release/${{ matrix.binary }}"
+          archive_path="$RUNNER_TEMP/snipe-code-${{ matrix.target }}.tar.gz"
+          package_root="$RUNNER_TEMP/package-${{ matrix.target }}"
+          test -f "$binary_path"
+          test -f README.md
+          mkdir -p "$package_root"
+          install -m 0755 "$binary_path" "$package_root/${{ matrix.binary }}"
+          cp README.md "$package_root/README.md"
+          if [[ -f LICENSE ]]; then
+            cp LICENSE "$package_root/LICENSE"
+          fi
+          source_revision="$(git rev-parse HEAD)"
+          printf '%s\n' "$source_revision" > "$package_root/SOURCE_REVISION.txt"
+          tar -czf "$archive_path" -C "$package_root" .
+      - name: Inspect Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archivePath = Join-Path $env:RUNNER_TEMP 'snipe-code-${{ matrix.target }}.zip'
+          $inspectRoot = Join-Path $env:RUNNER_TEMP 'inspect-${{ matrix.target }}'
+          if (-not (Test-Path -LiteralPath $archivePath)) {
+            throw "Missing release archive: $archivePath"
+          }
+          if (Test-Path -LiteralPath $inspectRoot) {
+            Remove-Item -LiteralPath $inspectRoot -Recurse -Force
+          }
+          Expand-Archive -LiteralPath $archivePath -DestinationPath $inspectRoot -Force
+          foreach ($required in @('${{ matrix.binary }}', 'README.md', 'SOURCE_REVISION.txt')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $inspectRoot $required))) {
+              throw "Missing packaged file: $required"
+            }
+          }
+      - name: Inspect Unix artifact
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_path="$RUNNER_TEMP/snipe-code-${{ matrix.target }}.tar.gz"
+          test -f "$archive_path"
+          tar -tzf "$archive_path" | tee "$RUNNER_TEMP/package-${{ matrix.target }}.contents"
+      - name: Upload platform artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: snipe-code-${{ matrix.target }}
+          path: ${{ runner.temp }}/snipe-code-${{ matrix.target }}.${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 14
+
+  attest-and-sign:
+    name: Attest and sign release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: snipe-code-*
+          path: dist
+          merge-multiple: true
+      - name: Check required release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(
+            snipe-code-x86_64-pc-windows-msvc.zip
+            snipe-code-aarch64-apple-darwin.tar.gz
+            snipe-code-x86_64-unknown-linux-gnu.tar.gz
+          )
+          for artifact in "${expected[@]}"; do
+            if [[ ! -f "dist/$artifact" ]]; then
+              echo "Missing release artifact: $artifact" >&2
+              exit 1
+            fi
+          done
+      - name: Generate SHA-256 checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum \
+            snipe-code-x86_64-pc-windows-msvc.zip \
+            snipe-code-aarch64-apple-darwin.tar.gz \
+            snipe-code-x86_64-unknown-linux-gnu.tar.gz > checksums.txt
+          sha256sum --check checksums.txt
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/snipe-code-x86_64-pc-windows-msvc.zip
+            dist/snipe-code-aarch64-apple-darwin.tar.gz
+            dist/snipe-code-x86_64-unknown-linux-gnu.tar.gz
+            dist/checksums.txt
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.7.0
+      - name: Sign checksums with keyless OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes --bundle dist/checksums.txt.bundle dist/checksums.txt
+          test -s dist/checksums.txt.bundle
+      - name: Verify keyless checksum signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          cosign verify-blob \
+            --bundle dist/checksums.txt.bundle \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/(tags|heads)/.+$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            dist/checksums.txt
+      - name: Upload verified release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-verified
+          path: dist
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub release
+    needs: attest-and-sign
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download verified release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: release-verified
+          path: release
+      - name: Inspect release bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -f release/checksums.txt
+          test -s release/checksums.txt.bundle
+          (
+            cd release
+            sha256sum --check checksums.txt
+          )
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              release/*
+          fi

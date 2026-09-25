@@ -1,5 +1,5 @@
-use std::process::Command;
 use std::path::Path;
+use std::process::Command;
 
 pub fn init(project_path: &str) -> Result<(), String> {
     let path = Path::new(project_path);
@@ -22,7 +22,12 @@ pub fn init(project_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn add_and_commit(project_path: &str, template_name: &str, frontend: &str, backend: &str) -> Result<(), String> {
+pub fn add_and_commit(
+    project_path: &str,
+    template_name: &str,
+    frontend: &str,
+    backend: &str,
+) -> Result<(), String> {
     let path = Path::new(project_path);
     if !path.exists() {
         return Err(format!("Folder '{}' does not exist", project_path));
@@ -41,7 +46,10 @@ pub fn add_and_commit(project_path: &str, template_name: &str, frontend: &str, b
     }
 
     // git commit
-    let commit_msg = format!("Initial commit: {} + {} + {}", template_name, frontend, backend);
+    let commit_msg = format!(
+        "Initial commit: {} + {} + {}",
+        template_name, frontend, backend
+    );
     let output = Command::new("git")
         .args(["commit", "-m", &commit_msg])
         .current_dir(path)

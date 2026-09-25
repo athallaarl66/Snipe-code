@@ -1,9 +1,32 @@
 use std::fs;
-use std::path::Path;
 use std::io::BufWriter;
+use std::path::Path;
 
-use printpdf::*;
+use dialoguer::MultiSelect;
 use docx_rs::*;
+use printpdf::*;
+
+/// Tampilkan MultiSelect interaktif untuk memilih format export audit.
+/// Markdown pre-selected. Loop sampai minimal satu format dipilih.
+pub fn select_export_formats() -> Vec<String> {
+    let options = ["Markdown (.md)", "PDF (.pdf)", "DOCX (.docx)"];
+    let ids = ["md", "pdf", "docx"];
+
+    loop {
+        let picked = MultiSelect::new()
+            .with_prompt("Pilih format export (spasi = pilih, Enter = lanjut)")
+            .items(&options)
+            .defaults(&[true, false, false])
+            .interact()
+            .expect("Failed to read format selection");
+
+        if picked.is_empty() {
+            println!("Minimal satu format harus dipilih.");
+            continue;
+        }
+        return picked.iter().map(|&i| ids[i].to_string()).collect();
+    }
+}
 
 pub fn run_audit(project_path: &str, export_format: &str) -> Result<Vec<String>, String> {
     let path = Path::new(project_path);
@@ -60,26 +83,39 @@ struct Finding {
 // === CHECKS ===
 
 fn check_hardcoded_secrets(path: &Path, findings: &mut Vec<Finding>) {
-    let secret_patterns = vec!["password", "secret", "api_key", "apikey", "token", "private_key"];
-    let extensions = vec![".ts", ".tsx", ".js", ".jsx", ".env", ".json"];
+    let secret_patterns = vec![
+        "password",
+        "secret",
+        "api_key",
+        "apikey",
+        "token",
+        "private_key",
+    ];
+    let extensions = vec![".ts", ".tsx", ".js", ".jsx", ".json"];
 
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
     for ext in &extensions {
-        let files = find_files(path, ext);
-        for file in files {
-            if let Ok(content) = fs::read_to_string(&file) {
-                for (line_num, line) in content.lines().enumerate() {
-                    for pattern in &secret_patterns {
-                        if line.to_lowercase().contains(pattern) && !line.trim().starts_with('#') {
-                            if line.contains('=') && !line.contains("process.env") && !line.contains("your-") {
-                                findings.push(Finding {
-                                    severity: "HIGH".to_string(),
-                                    category: "Hardcoded Secret".to_string(),
-                                    description: format!("Potential hardcoded secret: {}", pattern),
-                                    file: file.display().to_string(),
-                                    line: line_num + 1,
-                                });
-                            }
-                        }
+        files.extend(find_files(path, ext));
+    }
+    files.extend(find_dotfiles(path, &[".env", ".env.local"]));
+
+    for file in files {
+        if let Ok(content) = fs::read_to_string(&file) {
+            for (line_num, line) in content.lines().enumerate() {
+                for pattern in &secret_patterns {
+                    if line.to_lowercase().contains(pattern)
+                        && !line.trim().starts_with('#')
+                        && line.contains('=')
+                        && !line.contains("process.env")
+                        && !line.contains("your-")
+                    {
+                        findings.push(Finding {
+                            severity: "HIGH".to_string(),
+                            category: "Hardcoded Secret".to_string(),
+                            description: format!("Potential hardcoded secret: {}", pattern),
+                            file: file.display().to_string(),
+                            line: line_num + 1,
+                        });
                     }
                 }
             }
@@ -115,7 +151,8 @@ fn check_sql_injection(path: &Path, findings: &mut Vec<Finding>) {
                         findings.push(Finding {
                             severity: "HIGH".to_string(),
                             category: "SQL Injection".to_string(),
-                            description: "Potential SQL injection: string concatenation in query".to_string(),
+                            description: "Potential SQL injection: string concatenation in query"
+                                .to_string(),
                             file: file.display().to_string(),
                             line: line_num + 1,
                         });
@@ -175,11 +212,40 @@ fn find_files(path: &Path, extension: &str) -> Vec<std::path::PathBuf> {
     if let Ok(entries) = fs::read_dir(path) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() && !path.file_name().map_or(false, |n| {
-                n.to_string_lossy().starts_with('.') || n.to_string_lossy() == "node_modules" || n.to_string_lossy() == "target"
-            }) {
+            let is_excluded_dir = path.is_dir()
+                && path.file_name().is_some_and(|n| {
+                    let name = n.to_string_lossy();
+                    name.starts_with('.') || name == "node_modules" || name == "target"
+                });
+            if path.is_dir() && !is_excluded_dir {
                 files.extend(find_files(&path, extension));
-            } else if path.extension().map_or(false, |e| e.to_string_lossy() == &extension[1..]) {
+            } else if path
+                .extension()
+                .is_some_and(|e| e.to_string_lossy() == extension[1..])
+            {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
+fn find_dotfiles(path: &Path, names: &[&str]) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_excluded_dir = path.is_dir()
+                && path.file_name().is_some_and(|n| {
+                    let name = n.to_string_lossy();
+                    name.starts_with('.') || name == "node_modules" || name == "target"
+                });
+            if path.is_dir() && !is_excluded_dir {
+                files.extend(find_dotfiles(&path, names));
+            } else if path
+                .file_name()
+                .is_some_and(|n| names.contains(&n.to_str().unwrap_or("")))
+            {
                 files.push(path);
             }
         }
@@ -212,8 +278,16 @@ fn generate_markdown(findings: &[Finding]) -> String {
     } else {
         report.push_str("## Findings\n\n");
         for (i, finding) in findings.iter().enumerate() {
-            report.push_str(&format!("### {}. {} [{}]\n", i + 1, finding.category, finding.severity));
-            report.push_str(&format!("**File:** `{}` (line {})\n", finding.file, finding.line));
+            report.push_str(&format!(
+                "### {}. {} [{}]\n",
+                i + 1,
+                finding.category,
+                finding.severity
+            ));
+            report.push_str(&format!(
+                "**File:** `{}` (line {})\n",
+                finding.file, finding.line
+            ));
             report.push_str(&format!("**Description:** {}\n\n", finding.description));
         }
     }
@@ -227,7 +301,8 @@ fn generate_markdown(findings: &[Finding]) -> String {
 // === EXPORT: PDF ===
 
 fn generate_pdf(findings: &[Finding], output_path: &Path) -> Result<(), String> {
-    let (doc, page1, layer1) = PdfDocument::new("Security Audit Report", Mm(210.0), Mm(297.0), "Layer 1");
+    let (doc, page1, layer1) =
+        PdfDocument::new("Security Audit Report", Mm(210.0), Mm(297.0), "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
 
     let font = doc.add_builtin_font(BuiltinFont::Helvetica).unwrap();
@@ -240,11 +315,23 @@ fn generate_pdf(findings: &[Finding], output_path: &Path) -> Result<(), String> 
     y -= 15.0;
 
     // Metadata
-    current_layer.use_text(&format!("Generated by: SNIPE-CODE CLI"), 10.0, Mm(20.0), Mm(y), &font);
+    current_layer.use_text("Generator: SNIPE-CODE CLI", 10.0, Mm(20.0), Mm(y), &font);
     y -= 8.0;
-    current_layer.use_text(&format!("Date: {}", chrono_placeholder()), 10.0, Mm(20.0), Mm(y), &font);
+    current_layer.use_text(
+        format!("Date: {}", chrono_placeholder()),
+        10.0,
+        Mm(20.0),
+        Mm(y),
+        &font,
+    );
     y -= 8.0;
-    current_layer.use_text(&format!("Total Findings: {}", findings.len()), 10.0, Mm(20.0), Mm(y), &font);
+    current_layer.use_text(
+        format!("Total Findings: {}", findings.len()),
+        10.0,
+        Mm(20.0),
+        Mm(y),
+        &font,
+    );
     y -= 20.0;
 
     // Summary
@@ -254,7 +341,13 @@ fn generate_pdf(findings: &[Finding], output_path: &Path) -> Result<(), String> 
 
     current_layer.use_text("Summary", 16.0, Mm(20.0), Mm(y), &font_bold);
     y -= 12.0;
-    current_layer.use_text(&format!("HIGH: {}  |  MEDIUM: {}  |  LOW: {}", high, medium, low), 10.0, Mm(20.0), Mm(y), &font);
+    current_layer.use_text(
+        format!("HIGH: {}  |  MEDIUM: {}  |  LOW: {}", high, medium, low),
+        10.0,
+        Mm(20.0),
+        Mm(y),
+        &font,
+    );
     y -= 20.0;
 
     // Findings
@@ -268,23 +361,49 @@ fn generate_pdf(findings: &[Finding], output_path: &Path) -> Result<(), String> 
 
         for (i, finding) in findings.iter().enumerate() {
             if y < 50.0 {
-                break; // Simple pagination: stop if page is full
+                let omitted = findings.len() - i;
+                current_layer.use_text(
+                    format!("{} more finding(s) omitted — page space exceeded", omitted),
+                    9.0,
+                    Mm(20.0),
+                    Mm(y),
+                    &font_bold,
+                );
+                break;
             }
 
             let title = format!("{}. {} [{}]", i + 1, finding.category, finding.severity);
             current_layer.use_text(&title, 11.0, Mm(20.0), Mm(y), &font_bold);
             y -= 10.0;
 
-            current_layer.use_text(&format!("File: {} (line {})", finding.file, finding.line), 9.0, Mm(25.0), Mm(y), &font);
+            current_layer.use_text(
+                format!("File: {} (line {})", finding.file, finding.line),
+                9.0,
+                Mm(25.0),
+                Mm(y),
+                &font,
+            );
             y -= 8.0;
 
-            current_layer.use_text(&format!("Description: {}", finding.description), 9.0, Mm(25.0), Mm(y), &font);
+            current_layer.use_text(
+                format!("Description: {}", finding.description),
+                9.0,
+                Mm(25.0),
+                Mm(y),
+                &font,
+            );
             y -= 15.0;
         }
     }
 
     // Footer
-    current_layer.use_text("Report generated by SNIPE-CODE CLI", 8.0, Mm(20.0), Mm(20.0), &font);
+    current_layer.use_text(
+        "Report generated by SNIPE-CODE CLI",
+        8.0,
+        Mm(20.0),
+        Mm(20.0),
+        &font,
+    );
 
     let file = fs::File::create(output_path).map_err(|e| e.to_string())?;
     let mut writer = BufWriter::new(file);
@@ -302,76 +421,97 @@ fn generate_docx(findings: &[Finding], output_path: &Path) -> Result<(), String>
 
     let doc = Docx::new()
         .add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text("Security Audit Report").bold().size(36))
+            Paragraph::new().add_run(Run::new().add_text("Security Audit Report").bold().size(36)),
         )
         .add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text(format!("Generated by: SNIPE-CODE CLI")).size(20))
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text("Generated by: SNIPE-CODE CLI".to_string())
+                    .size(20),
+            ),
         )
         .add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text(format!("Date: {}", chrono_placeholder())).size(20))
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text(format!("Date: {}", chrono_placeholder()))
+                    .size(20),
+            ),
         )
         .add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text(format!("Total Findings: {}", findings.len())).size(20))
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text(format!("Total Findings: {}", findings.len()))
+                    .size(20),
+            ),
         )
         .add_paragraph(Paragraph::new())
+        .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Summary").bold().size(28)))
         .add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text("Summary").bold().size(28))
-        )
-        .add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text(format!("HIGH: {}  |  MEDIUM: {}  |  LOW: {}", high, medium, low)).size(20))
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text(format!(
+                        "HIGH: {}  |  MEDIUM: {}  |  LOW: {}",
+                        high, medium, low
+                    ))
+                    .size(20),
+            ),
         )
         .add_paragraph(Paragraph::new());
 
     let doc = if findings.is_empty() {
         doc.add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text("No Issues Found").bold().size(24))
+            Paragraph::new().add_run(Run::new().add_text("No Issues Found").bold().size(24)),
         )
         .add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text("Your codebase looks clean!").size(20))
+            Paragraph::new().add_run(Run::new().add_text("Your codebase looks clean!").size(20)),
         )
     } else {
         let mut doc = doc.add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text("Findings").bold().size(28))
+            Paragraph::new().add_run(Run::new().add_text("Findings").bold().size(28)),
         );
 
         for (i, finding) in findings.iter().enumerate() {
-            doc = doc.add_paragraph(
-                Paragraph::new()
-                    .add_run(Run::new()
-                        .add_text(format!("{}. {} [{}]", i + 1, finding.category, finding.severity))
-                        .bold()
-                        .size(22))
-            )
-            .add_paragraph(
-                Paragraph::new()
-                    .add_run(Run::new()
-                        .add_text(format!("File: {} (line {})", finding.file, finding.line))
-                        .size(18))
-            )
-            .add_paragraph(
-                Paragraph::new()
-                    .add_run(Run::new()
-                        .add_text(format!("Description: {}", finding.description))
-                        .size(18))
-            )
-            .add_paragraph(Paragraph::new());
+            doc = doc
+                .add_paragraph(
+                    Paragraph::new().add_run(
+                        Run::new()
+                            .add_text(format!(
+                                "{}. {} [{}]",
+                                i + 1,
+                                finding.category,
+                                finding.severity
+                            ))
+                            .bold()
+                            .size(22),
+                    ),
+                )
+                .add_paragraph(
+                    Paragraph::new().add_run(
+                        Run::new()
+                            .add_text(format!("File: {} (line {})", finding.file, finding.line))
+                            .size(18),
+                    ),
+                )
+                .add_paragraph(
+                    Paragraph::new().add_run(
+                        Run::new()
+                            .add_text(format!("Description: {}", finding.description))
+                            .size(18),
+                    ),
+                )
+                .add_paragraph(Paragraph::new());
         }
 
         doc
     };
 
     let doc = doc.add_paragraph(
-        Paragraph::new()
-            .add_run(Run::new().add_text("Report generated by SNIPE-CODE CLI").size(16).italic())
+        Paragraph::new().add_run(
+            Run::new()
+                .add_text("Report generated by SNIPE-CODE CLI")
+                .size(16)
+                .italic(),
+        ),
     );
 
     let file = fs::File::create(output_path).map_err(|e| e.to_string())?;

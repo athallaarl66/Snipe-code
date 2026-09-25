@@ -1,5 +1,7 @@
-use snipe_code::template::TemplateRegistry;
+mod common;
+
 use snipe_code::generator::{self, GenerateConfig};
+use snipe_code::template::TemplateRegistry;
 
 #[test]
 fn test_company_profile_has_page_folders() {
@@ -30,58 +32,60 @@ fn test_company_profile_backend_optional() {
 
 #[test]
 fn test_company_profile_generates_nextjs_files() {
+    let _ws = common::Workspace::new("cp-nextjs");
     let config = GenerateConfig {
-        project_name: "test-cp-nextjs".to_string(),
+        project_name: "app".to_string(),
         template_id: "company-profile".to_string(),
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
     };
-    let result = generator::generate(&config).unwrap();
+    let result = generator::generate(&config, false).unwrap();
 
     assert!(result.files.iter().any(|f| f.contains("package.json")));
     assert!(result.files.iter().any(|f| f.contains("tsconfig.json")));
     assert!(result.files.iter().any(|f| f.contains("next.config.js")));
-    assert!(result.files.iter().any(|f| f.contains("src/app/layout.tsx")));
+    assert!(
+        result
+            .files
+            .iter()
+            .any(|f| f.contains("src/app/layout.tsx"))
+    );
     assert!(result.files.iter().any(|f| f.contains("src/app/page.tsx")));
-
-    let _ = std::fs::remove_dir_all("test-cp-nextjs");
 }
 
 #[test]
 fn test_company_profile_generates_vue_files() {
+    let _ws = common::Workspace::new("cp-vue");
     let config = GenerateConfig {
-        project_name: "test-cp-vue".to_string(),
+        project_name: "app".to_string(),
         template_id: "company-profile".to_string(),
         frontend: "vue".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
     };
-    let result = generator::generate(&config).unwrap();
+    let result = generator::generate(&config, false).unwrap();
 
     assert!(result.files.iter().any(|f| f.contains("package.json")));
     assert!(result.files.iter().any(|f| f.contains("vite.config.ts")));
     assert!(result.files.iter().any(|f| f.contains("src/App.vue")));
     assert!(result.files.iter().any(|f| f.contains("src/main.ts")));
-
-    let _ = std::fs::remove_dir_all("test-cp-vue");
 }
 
 #[test]
 fn test_company_profile_generates_layout_components() {
+    let _ws = common::Workspace::new("cp-layout");
     let config = GenerateConfig {
-        project_name: "test-cp-layout".to_string(),
+        project_name: "app".to_string(),
         template_id: "company-profile".to_string(),
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
     };
-    let result = generator::generate(&config).unwrap();
+    let result = generator::generate(&config, false).unwrap();
 
     assert!(result.folders.iter().any(|f| f.contains("header")));
     assert!(result.folders.iter().any(|f| f.contains("footer")));
-
-    let _ = std::fs::remove_dir_all("test-cp-layout");
 }
 
 #[test]
