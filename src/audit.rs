@@ -28,7 +28,22 @@ pub fn select_export_formats() -> Vec<String> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditResult {
+    pub exported_files: Vec<String>,
+    pub high: usize,
+    pub medium: usize,
+    pub low: usize,
+    pub highest_severity: Option<String>,
+    pub policy_failed: bool,
+    pub detected_scopes: Vec<String>,
+}
+
 pub fn run_audit(project_path: &str, export_format: &str) -> Result<Vec<String>, String> {
+    Ok(run_audit_report(project_path, export_format)?.exported_files)
+}
+
+pub fn run_audit_report(project_path: &str, export_format: &str) -> Result<AuditResult, String> {
     let path = Path::new(project_path);
     if !path.exists() {
         return Err(format!("Folder '{}' does not exist", project_path));
@@ -44,10 +59,10 @@ pub fn run_audit(project_path: &str, export_format: &str) -> Result<Vec<String>,
     check_security_configs(path, &mut findings);
 
     let mut exported_files = Vec::new();
-    let formats: Vec<&str> = export_format.split(',').map(|s| s.trim()).collect();
+    let formats = validate_formats(export_format)?;
 
-    for format in &formats {
-        match *format {
+    for format in formats {
+        match format.as_str() {
             "md" => {
                 let report = generate_markdown(&findings);
                 let report_path = path.join("Audit_Report.md");
@@ -64,11 +79,83 @@ pub fn run_audit(project_path: &str, export_format: &str) -> Result<Vec<String>,
                 generate_docx(&findings, &report_path)?;
                 exported_files.push("Audit_Report.docx".to_string());
             }
-            _ => {}
+            _ => unreachable!("formats validated before export"),
         }
     }
 
-    Ok(exported_files)
+    let high = findings.iter().filter(|f| f.severity == "HIGH").count();
+    let medium = findings.iter().filter(|f| f.severity == "MEDIUM").count();
+    let low = findings.iter().filter(|f| f.severity == "LOW").count();
+    let highest_severity = if high > 0 {
+        Some("HIGH")
+    } else if medium > 0 {
+        Some("MEDIUM")
+    } else if low > 0 {
+        Some("LOW")
+    } else {
+        None
+    };
+    Ok(AuditResult {
+        exported_files,
+        high,
+        medium,
+        low,
+        highest_severity: highest_severity.map(str::to_string),
+        policy_failed: high > 0,
+        detected_scopes: detect_scopes(path),
+    })
+}
+
+fn validate_formats(value: &str) -> Result<Vec<String>, String> {
+    let mut formats = Vec::new();
+    for token in value.split(',').map(str::trim) {
+        if token.is_empty() {
+            return Err("export format contains an empty token".to_string());
+        }
+        if !matches!(token, "md" | "pdf" | "docx") {
+            return Err(format!("unsupported export format: {token}"));
+        }
+        if !formats.iter().any(|format| format == token) {
+            formats.push(token.to_string());
+        }
+    }
+    if formats.is_empty() {
+        return Err("at least one export format is required".to_string());
+    }
+    Ok(formats)
+}
+
+fn detect_scopes(path: &Path) -> Vec<String> {
+    let mut scopes = vec!["common".to_string()];
+    if path.join("frontend/package.json").exists() {
+        scopes.push("frontend".to_string());
+    }
+    if path.join("backend/go.mod").exists() {
+        scopes.push("backend:go".to_string());
+    }
+    if path.join("backend/package.json").exists() {
+        scopes.push("backend:node".to_string());
+    }
+    if path.join("backend/pom.xml").exists() {
+        scopes.push("backend:java".to_string());
+    }
+    if fs::read_dir(path.join("backend"))
+        .map(|entries| {
+            entries.flatten().any(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "csproj")
+            })
+        })
+        .unwrap_or(false)
+    {
+        scopes.push("backend:dotnet".to_string());
+    }
+    if path.join("backend/composer.json").exists() {
+        scopes.push("backend:php".to_string());
+    }
+    scopes
 }
 
 #[derive(Debug)]
@@ -273,8 +360,8 @@ fn generate_markdown(findings: &[Finding]) -> String {
     report.push_str(&format!("- LOW: {}\n\n", low));
 
     if findings.is_empty() {
-        report.push_str("## No Issues Found\n\n");
-        report.push_str("Your codebase looks clean! No security issues detected.\n");
+        report.push_str("## No findings detected by evaluated rules\n\n");
+        report.push_str("No findings detected by evaluated rules. Heuristic checks do not prove complete security.\n");
     } else {
         report.push_str("## Findings\n\n");
         for (i, finding) in findings.iter().enumerate() {
