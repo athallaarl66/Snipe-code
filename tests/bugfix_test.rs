@@ -166,6 +166,26 @@ fn test_readme_uses_supported_quality_and_commands() {
     assert!(readme.contains("cosign verify-blob --bundle"));
 }
 
+#[test]
+fn test_laravel_scaffold_uses_supported_framework_line() {
+    let files = snipe_code::stack::get_backend_files("laravel").unwrap();
+    let composer = files
+        .iter()
+        .find(|file| file.path == "composer.json")
+        .unwrap();
+    assert!(
+        composer
+            .content
+            .contains("\"laravel/framework\": \"^11.0\"")
+    );
+    assert!(composer.content.contains("\"php\": \"^8.2\""));
+    assert!(
+        !composer
+            .content
+            .contains("\"laravel/framework\": \"^10.10\"")
+    );
+}
+
 /// Regression: generating twice into the same workspace must not delete the
 /// first generated project when the second run is refused (no overwrite).
 #[test]

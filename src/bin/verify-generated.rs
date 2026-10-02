@@ -88,7 +88,10 @@ fn run_stack_command(path: &Path, stack: &str, frontend: bool) -> Result<(), Str
             ("dotnet", &["build", "--no-restore"]),
         ],
         (false, "laravel") => &[
-            ("composer", &["install", "--no-interaction"]),
+            (
+                "composer",
+                &["install", "--no-interaction", "--no-progress"],
+            ),
             ("php", &["artisan", "test"]),
         ],
         (false, _) => return Err(format!("unsupported backend stack {stack}")),
@@ -108,12 +111,13 @@ fn run_stack_command(path: &Path, stack: &str, frontend: bool) -> Result<(), Str
 }
 
 fn command(program: &str, args: &[&str], path: &Path) -> Command {
-    let program = if cfg!(windows) && matches!(program, "npm" | "mvn" | "composer") {
-        format!("{program}.cmd")
+    let mut command = if cfg!(windows) && matches!(program, "npm" | "mvn" | "composer") {
+        let mut command = Command::new("cmd.exe");
+        command.args(["/C", program]);
+        command
     } else {
-        program.to_string()
+        Command::new(program)
     };
-    let mut command = Command::new(program);
     command.args(args).current_dir(path);
     command
 }

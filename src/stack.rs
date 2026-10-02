@@ -599,18 +599,18 @@ CMD ["node", "dist/main.js"]
                 content: r#"{
     "name": "laravel/laravel",
     "type": "project",
-    "description": "Laravel 10 application.",
+    "description": "Laravel 11 application.",
     "keywords": ["laravel", "framework"],
     "license": "MIT",
     "require": {
-        "php": "^8.1",
-        "laravel/framework": "^10.10"
+        "php": "^8.2",
+        "laravel/framework": "^11.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
         "mockery/mockery": "^1.6",
-        "nunomaduro/collision": "^7.0",
-        "phpunit/phpunit": "^10.1"
+        "nunomaduro/collision": "^8.1",
+        "phpunit/phpunit": "^11.0"
     },
     "autoload": {
         "psr-4": {
