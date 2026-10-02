@@ -28,7 +28,24 @@ pub fn select_export_formats() -> Vec<String> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditResult {
+    pub exported_files: Vec<String>,
+    pub high: usize,
+    pub medium: usize,
+    pub low: usize,
+    pub highest_severity: Option<String>,
+    pub policy_failed: bool,
+    pub detected_scopes: Vec<String>,
+    pub evaluated_rule_groups: Vec<String>,
+    pub exclusions: Vec<String>,
+}
+
 pub fn run_audit(project_path: &str, export_format: &str) -> Result<Vec<String>, String> {
+    Ok(run_audit_report(project_path, export_format)?.exported_files)
+}
+
+pub fn run_audit_report(project_path: &str, export_format: &str) -> Result<AuditResult, String> {
     let path = Path::new(project_path);
     if !path.exists() {
         return Err(format!("Folder '{}' does not exist", project_path));
@@ -42,33 +59,208 @@ pub fn run_audit(project_path: &str, export_format: &str) -> Result<Vec<String>,
     check_sql_injection(path, &mut findings);
     check_xss_risks(path, &mut findings);
     check_security_configs(path, &mut findings);
+    check_supported_stack_sources(path, &mut findings);
 
+    let detected_scopes = detect_scopes(path);
     let mut exported_files = Vec::new();
-    let formats: Vec<&str> = export_format.split(',').map(|s| s.trim()).collect();
+    let formats = validate_formats(export_format)?;
 
-    for format in &formats {
-        match *format {
+    for format in formats {
+        match format.as_str() {
             "md" => {
-                let report = generate_markdown(&findings);
+                let report = generate_markdown(&findings, &detected_scopes);
                 let report_path = path.join("Audit_Report.md");
                 fs::write(&report_path, &report).map_err(|e| e.to_string())?;
                 exported_files.push("Audit_Report.md".to_string());
             }
             "pdf" => {
                 let report_path = path.join("Audit_Report.pdf");
-                generate_pdf(&findings, &report_path)?;
+                generate_pdf(&findings, &report_path, &detected_scopes)?;
                 exported_files.push("Audit_Report.pdf".to_string());
             }
             "docx" => {
                 let report_path = path.join("Audit_Report.docx");
-                generate_docx(&findings, &report_path)?;
+                generate_docx(&findings, &report_path, &detected_scopes)?;
                 exported_files.push("Audit_Report.docx".to_string());
             }
-            _ => {}
+            _ => unreachable!("formats validated before export"),
         }
     }
 
-    Ok(exported_files)
+    let high = findings.iter().filter(|f| f.severity == "HIGH").count();
+    let medium = findings.iter().filter(|f| f.severity == "MEDIUM").count();
+    let low = findings.iter().filter(|f| f.severity == "LOW").count();
+    let highest_severity = if high > 0 {
+        Some("HIGH")
+    } else if medium > 0 {
+        Some("MEDIUM")
+    } else if low > 0 {
+        Some("LOW")
+    } else {
+        None
+    };
+    Ok(AuditResult {
+        exported_files,
+        high,
+        medium,
+        low,
+        highest_severity: highest_severity.map(str::to_string),
+        policy_failed: high > 0,
+        detected_scopes,
+        evaluated_rule_groups: vec![
+            "common".to_string(),
+            "stack-specific heuristic rules".to_string(),
+        ],
+        exclusions: vec![
+            ".git, node_modules, vendor, target, dist, build, reports, symlinked directories"
+                .to_string(),
+        ],
+    })
+}
+
+fn validate_formats(value: &str) -> Result<Vec<String>, String> {
+    let mut formats = Vec::new();
+    for token in value.split(',').map(str::trim) {
+        if token.is_empty() {
+            return Err("export format contains an empty token".to_string());
+        }
+        if !matches!(token, "md" | "pdf" | "docx") {
+            return Err(format!("unsupported export format: {token}"));
+        }
+        if !formats.iter().any(|format| format == token) {
+            formats.push(token.to_string());
+        }
+    }
+    if formats.is_empty() {
+        return Err("at least one export format is required".to_string());
+    }
+    Ok(formats)
+}
+
+fn detect_scopes(path: &Path) -> Vec<String> {
+    let mut scopes = vec!["common".to_string()];
+    if path.join("frontend/package.json").exists() {
+        scopes.push("frontend".to_string());
+    }
+    if path.join("backend/go.mod").exists() {
+        scopes.push("backend:go".to_string());
+    }
+    if path.join("backend/package.json").exists() {
+        scopes.push("backend:node".to_string());
+    }
+    if path.join("backend/pom.xml").exists() {
+        scopes.push("backend:java".to_string());
+    }
+    if fs::read_dir(path.join("backend"))
+        .map(|entries| {
+            entries.flatten().any(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "csproj")
+            })
+        })
+        .unwrap_or(false)
+    {
+        scopes.push("backend:dotnet".to_string());
+    }
+    if path.join("backend/composer.json").exists() {
+        scopes.push("backend:php".to_string());
+    }
+    for manifest in find_named_files(
+        path,
+        &[
+            "package.json",
+            "composer.json",
+            "go.mod",
+            "pom.xml",
+            "Cargo.toml",
+        ],
+    ) {
+        let text = fs::read_to_string(&manifest)
+            .unwrap_or_default()
+            .to_lowercase();
+        let identity = if manifest.file_name().is_some_and(|name| name == "go.mod") {
+            "go"
+        } else if manifest.file_name().is_some_and(|name| name == "pom.xml") {
+            if text.contains("spring") {
+                "java:spring"
+            } else {
+                "java"
+            }
+        } else if manifest
+            .file_name()
+            .is_some_and(|name| name == "composer.json")
+        {
+            if text.contains("laravel") {
+                "php:laravel"
+            } else {
+                "php"
+            }
+        } else if manifest
+            .file_name()
+            .is_some_and(|name| name == "Cargo.toml")
+        {
+            "rust"
+        } else if text.contains("nuxt") {
+            "javascript:nuxt"
+        } else if text.contains("vue") {
+            "javascript:vue"
+        } else if text.contains("react") {
+            "javascript:react"
+        } else {
+            "javascript/typescript"
+        };
+        let label = format!(
+            "{} ({})",
+            identity,
+            manifest.parent().unwrap_or(path).display()
+        );
+        if !scopes.contains(&label) {
+            scopes.push(label);
+        }
+    }
+    scopes
+}
+
+fn find_named_files(path: &Path, names: &[&str]) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let Ok(entries) = fs::read_dir(path) else {
+        return files;
+    };
+    for entry in entries.flatten() {
+        let candidate = entry.path();
+        let is_symlink = entry
+            .file_type()
+            .map(|kind| kind.is_symlink())
+            .unwrap_or(true);
+        if is_symlink {
+            continue;
+        }
+        if candidate.is_dir() {
+            let name = candidate.file_name().unwrap_or_default().to_string_lossy();
+            if name.starts_with('.')
+                || [
+                    "node_modules",
+                    "vendor",
+                    "target",
+                    "dist",
+                    "build",
+                    "reports",
+                ]
+                .contains(&name.as_ref())
+            {
+                continue;
+            }
+            files.extend(find_named_files(&candidate, names));
+        } else if candidate
+            .file_name()
+            .is_some_and(|name| names.contains(&name.to_string_lossy().as_ref()))
+        {
+            files.push(candidate);
+        }
+    }
+    files
 }
 
 #[derive(Debug)]
@@ -207,16 +399,56 @@ fn check_security_configs(path: &Path, findings: &mut Vec<Finding>) {
     }
 }
 
+fn check_supported_stack_sources(path: &Path, findings: &mut Vec<Finding>) {
+    for extension in ["php", "go", "java", "cs", "rs"] {
+        for file in find_files(path, &format!(".{extension}")) {
+            let Ok(content) = fs::read_to_string(&file) else {
+                continue;
+            };
+            for (line_num, line) in content.lines().enumerate() {
+                let sql = (line.contains("query") || line.contains("sql")) && line.contains('+');
+                let secret = ["password=", "api_key=", "apiKey=", "token="]
+                    .iter()
+                    .any(|pattern| line.contains(pattern));
+                if sql || secret {
+                    findings.push(Finding {
+                        severity: "HIGH".to_string(),
+                        category: "Stack Source Risk".to_string(),
+                        description:
+                            "Heuristic unsafe query or secret pattern in supported stack source"
+                                .to_string(),
+                        file: file.display().to_string(),
+                        line: line_num + 1,
+                    });
+                }
+            }
+        }
+    }
+}
+
 fn find_files(path: &Path, extension: &str) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
     if let Ok(entries) = fs::read_dir(path) {
         for entry in entries.flatten() {
             let path = entry.path();
-            let is_excluded_dir = path.is_dir()
-                && path.file_name().is_some_and(|n| {
-                    let name = n.to_string_lossy();
-                    name.starts_with('.') || name == "node_modules" || name == "target"
-                });
+            let is_excluded_dir = entry
+                .file_type()
+                .map(|kind| kind.is_symlink())
+                .unwrap_or(true)
+                || (path.is_dir()
+                    && path.file_name().is_some_and(|n| {
+                        let name = n.to_string_lossy();
+                        name.starts_with('.')
+                            || [
+                                "node_modules",
+                                "vendor",
+                                "target",
+                                "dist",
+                                "build",
+                                "reports",
+                            ]
+                            .contains(&name.as_ref())
+                    }));
             if path.is_dir() && !is_excluded_dir {
                 files.extend(find_files(&path, extension));
             } else if path
@@ -235,11 +467,24 @@ fn find_dotfiles(path: &Path, names: &[&str]) -> Vec<std::path::PathBuf> {
     if let Ok(entries) = fs::read_dir(path) {
         for entry in entries.flatten() {
             let path = entry.path();
-            let is_excluded_dir = path.is_dir()
-                && path.file_name().is_some_and(|n| {
-                    let name = n.to_string_lossy();
-                    name.starts_with('.') || name == "node_modules" || name == "target"
-                });
+            let is_excluded_dir = entry
+                .file_type()
+                .map(|kind| kind.is_symlink())
+                .unwrap_or(true)
+                || (path.is_dir()
+                    && path.file_name().is_some_and(|n| {
+                        let name = n.to_string_lossy();
+                        name.starts_with('.')
+                            || [
+                                "node_modules",
+                                "vendor",
+                                "target",
+                                "dist",
+                                "build",
+                                "reports",
+                            ]
+                            .contains(&name.as_ref())
+                    }));
             if path.is_dir() && !is_excluded_dir {
                 files.extend(find_dotfiles(&path, names));
             } else if path
@@ -255,13 +500,22 @@ fn find_dotfiles(path: &Path, names: &[&str]) -> Vec<std::path::PathBuf> {
 
 // === EXPORT: MARKDOWN ===
 
-fn generate_markdown(findings: &[Finding]) -> String {
+fn generate_markdown(findings: &[Finding], scopes: &[String]) -> String {
     let mut report = String::new();
 
     report.push_str("# Security Audit Report\n\n");
     report.push_str("**Generated by:** SNIPE-CODE CLI\n");
     report.push_str(&format!("**Date:** {}\n", chrono_placeholder()));
     report.push_str(&format!("**Total Findings:** {}\n\n", findings.len()));
+    report.push_str(&format!(
+        "**Detected contexts:** {}\n",
+        if scopes.is_empty() {
+            "unknown".to_string()
+        } else {
+            scopes.join(", ")
+        }
+    ));
+    report.push_str("**Rule coverage:** common and stack-specific heuristic checks; excluded dependency/build/report directories; results are not proof of complete security.\n\n");
 
     let high = findings.iter().filter(|f| f.severity == "HIGH").count();
     let medium = findings.iter().filter(|f| f.severity == "MEDIUM").count();
@@ -273,8 +527,8 @@ fn generate_markdown(findings: &[Finding]) -> String {
     report.push_str(&format!("- LOW: {}\n\n", low));
 
     if findings.is_empty() {
-        report.push_str("## No Issues Found\n\n");
-        report.push_str("Your codebase looks clean! No security issues detected.\n");
+        report.push_str("## No findings detected by evaluated rules\n\n");
+        report.push_str("No findings detected by evaluated rules. Heuristic checks do not prove complete security.\n");
     } else {
         report.push_str("## Findings\n\n");
         for (i, finding) in findings.iter().enumerate() {
@@ -300,7 +554,7 @@ fn generate_markdown(findings: &[Finding]) -> String {
 
 // === EXPORT: PDF ===
 
-fn generate_pdf(findings: &[Finding], output_path: &Path) -> Result<(), String> {
+fn generate_pdf(findings: &[Finding], output_path: &Path, scopes: &[String]) -> Result<(), String> {
     let (doc, page1, layer1) =
         PdfDocument::new("Security Audit Report", Mm(210.0), Mm(297.0), "Layer 1");
     let current_layer = doc.get_page(page1).get_layer(layer1);
@@ -320,6 +574,21 @@ fn generate_pdf(findings: &[Finding], output_path: &Path) -> Result<(), String> 
     current_layer.use_text(
         format!("Date: {}", chrono_placeholder()),
         10.0,
+        Mm(20.0),
+        Mm(y),
+        &font,
+    );
+    y -= 8.0;
+    current_layer.use_text(
+        format!(
+            "Contexts: {}",
+            if scopes.is_empty() {
+                "unknown".to_string()
+            } else {
+                scopes.join(", ")
+            }
+        ),
+        9.0,
         Mm(20.0),
         Mm(y),
         &font,
@@ -352,9 +621,21 @@ fn generate_pdf(findings: &[Finding], output_path: &Path) -> Result<(), String> 
 
     // Findings
     if findings.is_empty() {
-        current_layer.use_text("No Issues Found", 14.0, Mm(20.0), Mm(y), &font_bold);
+        current_layer.use_text(
+            "No findings detected by evaluated rules",
+            14.0,
+            Mm(20.0),
+            Mm(y),
+            &font_bold,
+        );
         y -= 12.0;
-        current_layer.use_text("Your codebase looks clean!", 10.0, Mm(20.0), Mm(y), &font);
+        current_layer.use_text(
+            "Heuristic checks do not prove complete security.",
+            10.0,
+            Mm(20.0),
+            Mm(y),
+            &font,
+        );
     } else {
         current_layer.use_text("Findings", 16.0, Mm(20.0), Mm(y), &font_bold);
         y -= 15.0;
@@ -414,7 +695,11 @@ fn generate_pdf(findings: &[Finding], output_path: &Path) -> Result<(), String> 
 
 // === EXPORT: DOCX ===
 
-fn generate_docx(findings: &[Finding], output_path: &Path) -> Result<(), String> {
+fn generate_docx(
+    findings: &[Finding],
+    output_path: &Path,
+    scopes: &[String],
+) -> Result<(), String> {
     let high = findings.iter().filter(|f| f.severity == "HIGH").count();
     let medium = findings.iter().filter(|f| f.severity == "MEDIUM").count();
     let low = findings.iter().filter(|f| f.severity == "LOW").count();
@@ -444,6 +729,20 @@ fn generate_docx(findings: &[Finding], output_path: &Path) -> Result<(), String>
                     .size(20),
             ),
         )
+        .add_paragraph(
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text(format!(
+                        "Contexts: {}",
+                        if scopes.is_empty() {
+                            "unknown".to_string()
+                        } else {
+                            scopes.join(", ")
+                        }
+                    ))
+                    .size(18),
+            ),
+        )
         .add_paragraph(Paragraph::new())
         .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Summary").bold().size(28)))
         .add_paragraph(
@@ -460,10 +759,19 @@ fn generate_docx(findings: &[Finding], output_path: &Path) -> Result<(), String>
 
     let doc = if findings.is_empty() {
         doc.add_paragraph(
-            Paragraph::new().add_run(Run::new().add_text("No Issues Found").bold().size(24)),
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text("No findings detected by evaluated rules")
+                    .bold()
+                    .size(24),
+            ),
         )
         .add_paragraph(
-            Paragraph::new().add_run(Run::new().add_text("Your codebase looks clean!").size(20)),
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text("Heuristic checks do not prove complete security.")
+                    .size(20),
+            ),
         )
     } else {
         let mut doc = doc.add_paragraph(

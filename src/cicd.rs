@@ -40,7 +40,6 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
                 steps.push("        with:".to_string());
                 steps.push("          node-version: '20'".to_string());
                 steps.push("      - run: npm install".to_string());
-                steps.push("      - run: npm run lint".to_string());
                 steps.push("      - run: npm run build".to_string());
             }
             _ => {}
@@ -64,7 +63,6 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
                 steps.push("        with:".to_string());
                 steps.push("          node-version: '20'".to_string());
                 steps.push("      - run: npm install".to_string());
-                steps.push("      - run: npm run lint".to_string());
                 steps.push("      - run: npm run build".to_string());
             }
             "go-gin" => {
@@ -72,6 +70,7 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
                 steps.push("        with:".to_string());
                 steps.push("          go-version: '1.21'".to_string());
                 steps.push("      - run: go mod tidy".to_string());
+                steps.push("      - run: go test ./...".to_string());
                 steps.push("      - run: go build ./...".to_string());
             }
             "spring-boot" => {
@@ -79,13 +78,14 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
                 steps.push("        with:".to_string());
                 steps.push("          java-version: '17'".to_string());
                 steps.push("          distribution: 'temurin'".to_string());
-                steps.push("      - run: mvn clean install".to_string());
+                steps.push("      - run: mvn test package".to_string());
             }
             "dotnet8" => {
                 steps.push("      - uses: actions/setup-dotnet@v4".to_string());
                 steps.push("        with:".to_string());
                 steps.push("          dotnet-version: '8.0.x'".to_string());
                 steps.push("      - run: dotnet restore".to_string());
+                steps.push("      - run: dotnet test --no-restore".to_string());
                 steps.push("      - run: dotnet build --no-restore".to_string());
             }
             "laravel" => {

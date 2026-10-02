@@ -21,12 +21,12 @@ fn main() {
         Some(other) if other.starts_with('-') => {
             println!("Unknown option: {}", other);
             println!("Run 'snipe-code help' untuk daftar perintah.");
-            code(1);
+            code(2);
         }
         Some(other) => {
             println!("Unknown command: {}", other);
             println!("Run 'snipe-code help' untuk daftar perintah.");
-            code(1);
+            code(2);
         }
     }
 }
@@ -49,7 +49,8 @@ fn run_audit_cmd(args: &[String]) {
                 export_opt = Some(val.clone());
                 i += 2;
             } else {
-                i += 1;
+                eprintln!("Usage error: --export membutuhkan nilai.");
+                std::process::exit(2);
             }
         } else {
             path = args[i].clone();
@@ -60,8 +61,8 @@ fn run_audit_cmd(args: &[String]) {
     let export_format = match export_opt {
         Some(f) if !f.trim().is_empty() => f,
         Some(_) => {
-            println!("Warning: --export tidak boleh kosong — default ke markdown.");
-            "md".to_string()
+            eprintln!("Usage error: --export tidak boleh kosong.");
+            std::process::exit(2);
         }
         None => {
             if console::Term::stdout().is_term() {
@@ -73,15 +74,28 @@ fn run_audit_cmd(args: &[String]) {
         }
     };
 
-    match audit::run_audit(&path, &export_format) {
-        Ok(files) => {
+    match audit::run_audit_report(&path, &export_format) {
+        Ok(result) => {
             println!("Audit complete! Exported files:");
-            for file in &files {
+            for file in &result.exported_files {
                 println!("  - {}/{}", path, file);
+            }
+            if result.policy_failed {
+                eprintln!("Audit policy failed: {} HIGH finding(s)", result.high);
+                std::process::exit(1);
             }
         }
         Err(e) => {
-            println!("Audit failed: {}", e);
+            eprintln!("Audit failed: {}", e);
+            let code = if e.starts_with("unsupported export format")
+                || e.contains("empty token")
+                || e.contains("at least one export")
+            {
+                2
+            } else {
+                3
+            };
+            std::process::exit(code);
         }
     }
 }

@@ -2,453 +2,99 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
 
-env:
-  RUST_TOOLCHAIN: 1.85.0
-
 jobs:
-  rust-quality:
+  rust:
     name: Rust quality
     runs-on: ubuntu-latest
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Install pinned Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          toolchain: 1.85.0
           components: rustfmt, clippy
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: rust-quality
-      - name: Report Rust version
-        run: |
-          rustc --version --verbose
-          cargo --version
-      - name: Check formatting
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/rust-logs"
-          cargo fmt --check 2>&1 | tee "$RUNNER_TEMP/rust-logs/fmt.log"
-      - name: Run Clippy
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tee "$RUNNER_TEMP/rust-logs/clippy.log"
-      - name: Run Rust tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo test --all-targets --all-features 2>&1 | tee "$RUNNER_TEMP/rust-logs/test.log"
-      - name: Upload Rust failure artifacts
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: rust-quality-failure
-          path: |
-            ${{ runner.temp }}/rust-logs
-            target
-          if-no-files-found: warn
-          retention-days: 14
+      - run: rustc --version
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-targets --all-features
 
-  frontend:
-    name: Frontend ${{ matrix.frontend }}
+  generated-frontend:
+    name: Frontend (${{ matrix.stack }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        frontend:
-          - nextjs
-          - react-vite
-          - vue
-          - nuxtjs
+        stack: [nextjs, react-vite, vue, nuxtjs]
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Install pinned Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+          toolchain: 1.85.0
+      - uses: actions/setup-node@v4
         with:
-          key: frontend-${{ matrix.frontend }}
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Cache Node dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.npm
-            ~/.cache/node
-          key: frontend-${{ matrix.frontend }}-npm-${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json') }}
-          restore-keys: |
-            frontend-${{ matrix.frontend }}-npm-
-      - name: Check required tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          command -v rustc
-          command -v cargo
-          rustc --version
-          command -v node
-          command -v npm
-          node --version
-          npm --version
-      - name: Allocate isolated workspace
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/generated-workspaces" "$RUNNER_TEMP/verify-logs"
-          workspace="$(mktemp -d "$RUNNER_TEMP/generated-workspaces/frontend-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-XXXXXX")"
-          mkdir -p "$workspace/tmp"
-          printf 'SNIPE_VERIFY_WORKSPACE=%s\n' "$workspace" >> "$GITHUB_ENV"
-          printf 'TMPDIR=%s/tmp\n' "$workspace/tmp" >> "$GITHUB_ENV"
-      - name: Verify generated frontend
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo run --release -- verify-generated --frontend ${{ matrix.frontend }} --backend none --database none 2>&1 | tee "$RUNNER_TEMP/verify-logs/frontend-${{ matrix.frontend }}.log"
-      - name: Upload frontend failure artifacts
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: verify-frontend-${{ matrix.frontend }}
-          path: |
-            ${{ runner.temp }}/verify-logs
-            ${{ runner.temp }}/generated-workspaces
-          if-no-files-found: warn
-          retention-days: 14
+          node-version: 20
+          cache: npm
+      - run: cargo run --bin verify-generated -- --frontend "${{ matrix.stack }}"
 
-  backend:
-    name: Backend ${{ matrix.backend }}
+  generated-backend:
+    name: Backend (${{ matrix.stack }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [nestjs, go-gin, spring-boot, dotnet8, laravel]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85.0
+      - uses: actions/setup-node@v4
+        if: matrix.stack == 'nestjs'
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-go@v5
+        if: matrix.stack == 'go-gin'
+        with:
+          go-version: '1.21'
+      - uses: actions/setup-java@v4
+        if: matrix.stack == 'spring-boot'
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-dotnet@v4
+        if: matrix.stack == 'dotnet8'
+        with:
+          dotnet-version: 8.0.x
+      - uses: shivammathur/setup-php@v2
+        if: matrix.stack == 'laravel'
+        with:
+          php-version: '8.2'
+          tools: composer
+      - run: cargo run --bin verify-generated -- --backend "${{ matrix.stack }}"
+
+  compose:
+    name: Compose (${{ matrix.database }}, ${{ matrix.backend }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - backend: nestjs
-            toolchain: node
-          - backend: go-gin
-            toolchain: go
-          - backend: spring-boot
-            toolchain: java
-          - backend: dotnet8
-            toolchain: dotnet
-          - backend: laravel
-            toolchain: php
+          - database: postgresql
+            backend: none
+          - database: mysql
+            backend: none
+          - database: postgresql
+            backend: nestjs
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Install pinned Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: backend-${{ matrix.backend }}
-      - name: Set up Node.js 20
-        if: matrix.toolchain == 'node'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Set up Go 1.21
-        if: matrix.toolchain == 'go'
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-          cache: false
-      - name: Set up Java 17
-        if: matrix.toolchain == 'java'
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Set up .NET 8
-        if: matrix.toolchain == 'dotnet'
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - name: Set up PHP 8.1 and Composer
-        if: matrix.toolchain == 'php'
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.1'
-          tools: composer
-      - name: Cache Node dependencies
-        if: matrix.toolchain == 'node'
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: backend-${{ matrix.backend }}-npm-${{ hashFiles('**/package-lock.json', '**/npm-shrinkwrap.json') }}
-          restore-keys: |
-            backend-${{ matrix.backend }}-npm-
-      - name: Cache Go dependencies
-        if: matrix.toolchain == 'go'
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/go/pkg/sumdb
-          key: backend-${{ matrix.backend }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            backend-${{ matrix.backend }}-go-
-      - name: Cache Java dependencies
-        if: matrix.toolchain == 'java'
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: backend-${{ matrix.backend }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            backend-${{ matrix.backend }}-maven-
-      - name: Cache .NET dependencies
-        if: matrix.toolchain == 'dotnet'
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: backend-${{ matrix.backend }}-nuget-${{ hashFiles('**/packages.lock.json', '**/*.csproj') }}
-          restore-keys: |
-            backend-${{ matrix.backend }}-nuget-
-      - name: Cache PHP dependencies
-        if: matrix.toolchain == 'php'
-        uses: actions/cache@v4
-        with:
-          path: ~/.composer/cache
-          key: backend-${{ matrix.backend }}-composer-${{ hashFiles('**/composer.lock', '**/composer.json') }}
-          restore-keys: |
-            backend-${{ matrix.backend }}-composer-
-      - name: Check required tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          command -v rustc
-          command -v cargo
-          rustc --version
-          case "${{ matrix.toolchain }}" in
-            node)
-              command -v node
-              command -v npm
-              node --version
-              npm --version
-              ;;
-            go)
-              command -v go
-              go version
-              ;;
-            java)
-              command -v java
-              command -v mvn
-              java -version
-              mvn --version
-              ;;
-            dotnet)
-              command -v dotnet
-              dotnet --version
-              ;;
-            php)
-              command -v php
-              command -v composer
-              php --version
-              php -r 'if (PHP_VERSION_ID < 80100) { exit(1); }'
-              composer --version
-              ;;
-            *)
-              echo "Unknown toolchain: ${{ matrix.toolchain }}" >&2
-              exit 1
-              ;;
-          esac
-      - name: Allocate isolated workspace
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/generated-workspaces" "$RUNNER_TEMP/verify-logs"
-          workspace="$(mktemp -d "$RUNNER_TEMP/generated-workspaces/backend-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-XXXXXX")"
-          mkdir -p "$workspace/tmp"
-          printf 'SNIPE_VERIFY_WORKSPACE=%s\n' "$workspace" >> "$GITHUB_ENV"
-          printf 'TMPDIR=%s/tmp\n' "$workspace/tmp" >> "$GITHUB_ENV"
-      - name: Verify generated backend
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo run --release -- verify-generated --frontend none --backend ${{ matrix.backend }} --database none 2>&1 | tee "$RUNNER_TEMP/verify-logs/backend-${{ matrix.backend }}.log"
-      - name: Upload backend failure artifacts
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: verify-backend-${{ matrix.backend }}
-          path: |
-            ${{ runner.temp }}/verify-logs
-            ${{ runner.temp }}/generated-workspaces
-          if-no-files-found: warn
-          retention-days: 14
-
-  docker:
-    name: Docker ${{ matrix.database }} ${{ matrix.backend }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        database:
-          - postgresql
-          - mysql
-        backend:
-          - none
-          - nestjs
-          - go-gin
-          - spring-boot
-          - dotnet8
-          - laravel
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-      - name: Install pinned Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: docker-${{ matrix.database }}-${{ matrix.backend }}
-      - name: Set up Node.js 20
-        if: matrix.backend == 'nestjs'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Set up Go 1.21
-        if: matrix.backend == 'go-gin'
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-          cache: false
-      - name: Set up Java 17
-        if: matrix.backend == 'spring-boot'
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Set up .NET 8
-        if: matrix.backend == 'dotnet8'
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - name: Set up PHP 8.1 and Composer
-        if: matrix.backend == 'laravel'
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.1'
-          tools: composer
-      - name: Cache generated-project dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.npm
-            ~/.cache/node
-            ~/go/pkg/mod
-            ~/go/pkg/sumdb
-            ~/.m2/repository
-            ~/.nuget/packages
-            ~/.composer/cache
-          key: docker-${{ matrix.database }}-${{ matrix.backend }}-${{ hashFiles('**/package-lock.json', '**/go.sum', '**/pom.xml', '**/packages.lock.json', '**/composer.lock') }}
-          restore-keys: |
-            docker-${{ matrix.database }}-${{ matrix.backend }}-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Cache Docker state
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.docker/buildx
-            /tmp/.buildx
-          key: docker-${{ matrix.database }}-${{ matrix.backend }}-${{ hashFiles('**/docker-compose*.yml', '**/compose*.yml', '**/Dockerfile') }}
-          restore-keys: |
-            docker-${{ matrix.database }}-${{ matrix.backend }}-
-      - name: Check required tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          command -v rustc
-          command -v cargo
-          rustc --version
-          command -v docker
-          docker version
-          docker compose version
-          case "${{ matrix.backend }}" in
-            none)
-              ;;
-            nestjs)
-              command -v node
-              command -v npm
-              node --version
-              npm --version
-              ;;
-            go-gin)
-              command -v go
-              go version
-              ;;
-            spring-boot)
-              command -v java
-              command -v mvn
-              java -version
-              mvn --version
-              ;;
-            dotnet8)
-              command -v dotnet
-              dotnet --version
-              ;;
-            laravel)
-              command -v php
-              command -v composer
-              php --version
-              php -r 'if (PHP_VERSION_ID < 80100) { exit(1); }'
-              composer --version
-              ;;
-            *)
-              echo "Unknown backend: ${{ matrix.backend }}" >&2
-              exit 1
-              ;;
-          esac
-      - name: Allocate isolated workspace
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/generated-workspaces" "$RUNNER_TEMP/verify-logs"
-          workspace="$(mktemp -d "$RUNNER_TEMP/generated-workspaces/docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-XXXXXX")"
-          mkdir -p "$workspace/tmp"
-          printf 'SNIPE_VERIFY_WORKSPACE=%s\n' "$workspace" >> "$GITHUB_ENV"
-          printf 'TMPDIR=%s/tmp\n' "$workspace/tmp" >> "$GITHUB_ENV"
-      - name: Verify generated Docker project
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo run --release -- verify-generated --frontend none --backend ${{ matrix.backend }} --database ${{ matrix.database }} 2>&1 | tee "$RUNNER_TEMP/verify-logs/docker-${{ matrix.database }}-${{ matrix.backend }}.log"
-      - name: Validate generated Compose file
-        shell: bash
-        run: |
-          set -euo pipefail
-          compose_file="$(find "$RUNNER_TEMP/generated-workspaces" -type f \( -name 'docker-compose.yml' -o -name 'compose.yml' \) -print -quit)"
-          if [[ -z "$compose_file" ]]; then
-            echo "Generated Compose file not found" >&2
-            exit 1
-          fi
-          docker compose -f "$compose_file" config --quiet 2>&1 | tee "$RUNNER_TEMP/verify-logs/docker-compose-${{ matrix.database }}-${{ matrix.backend }}.log"
-      - name: Upload Docker failure artifacts
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: verify-docker-${{ matrix.database }}-${{ matrix.backend }}
-          path: |
-            ${{ runner.temp }}/verify-logs
-            ${{ runner.temp }}/generated-workspaces
-          if-no-files-found: warn
-          retention-days: 14
+          toolchain: 1.85.0
+      - run: docker --version
+      - run: cargo run --bin verify-compose -- "${{ matrix.database }}" "${{ matrix.backend }}"

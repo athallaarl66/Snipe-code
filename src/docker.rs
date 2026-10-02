@@ -29,9 +29,10 @@ fn docker_compose_content(database: &str, backend: &str) -> String {
             lines.push("  postgres:".to_string());
             lines.push("    image: postgres:16-alpine".to_string());
             lines.push("    environment:".to_string());
-            lines.push("      POSTGRES_USER: user".to_string());
-            lines.push("      POSTGRES_PASSWORD: password".to_string());
-            lines.push("      POSTGRES_DB: mydb".to_string());
+            lines.push("      POSTGRES_USER: ${POSTGRES_USER:-snipe_local}".to_string());
+            lines
+                .push("      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_LOCAL}".to_string());
+            lines.push("      POSTGRES_DB: ${POSTGRES_DB:-snipe_local}".to_string());
             lines.push("    ports:".to_string());
             lines.push("      - '5432:5432'".to_string());
             lines.push("    volumes:".to_string());
@@ -41,10 +42,12 @@ fn docker_compose_content(database: &str, backend: &str) -> String {
             lines.push("  mysql:".to_string());
             lines.push("    image: mysql:8.0".to_string());
             lines.push("    environment:".to_string());
-            lines.push("      MYSQL_ROOT_PASSWORD: rootpassword".to_string());
-            lines.push("      MYSQL_DATABASE: mydb".to_string());
-            lines.push("      MYSQL_USER: user".to_string());
-            lines.push("      MYSQL_PASSWORD: password".to_string());
+            lines.push(
+                "      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-CHANGE_ME_LOCAL}".to_string(),
+            );
+            lines.push("      MYSQL_DATABASE: ${MYSQL_DATABASE:-snipe_local}".to_string());
+            lines.push("      MYSQL_USER: ${MYSQL_USER:-snipe_local}".to_string());
+            lines.push("      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-CHANGE_ME_LOCAL}".to_string());
             lines.push("    ports:".to_string());
             lines.push("      - '3306:3306'".to_string());
             lines.push("    volumes:".to_string());
@@ -54,7 +57,8 @@ fn docker_compose_content(database: &str, backend: &str) -> String {
     }
 
     // Backend service (optional)
-    if backend != "none" {
+    // Only backends with a generated Dockerfile are containerized.
+    if backend == "nestjs" {
         lines.push("".to_string());
         lines.push("  backend:".to_string());
         lines.push("    build: ./backend".to_string());

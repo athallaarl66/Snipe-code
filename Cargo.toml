@@ -1,6 +1,7 @@
 [package]
 name = "snipe-code"
 version = "0.1.0"
+default-run = "snipe-code"
 edition = "2024"
 rust-version = "1.85"
 

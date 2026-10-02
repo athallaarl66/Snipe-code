@@ -73,6 +73,21 @@ fn test_workflow_uses_npm_install_not_ci() {
     let content = fs::read_to_string(dir.join(".github/workflows/main.yml")).unwrap();
     assert!(!content.contains("npm ci"), "must not use npm ci");
     assert!(content.contains("npm install"), "must use npm install");
+    assert!(
+        !content.contains("npm run lint"),
+        "must not invoke undeclared lint script"
+    );
+}
+
+#[test]
+fn test_non_container_backend_omits_backend_compose_service() {
+    let dir = temp_project("compose-go");
+    snipe_code::docker::generate_docker_compose(&dir.to_string_lossy(), "postgresql", "go-gin")
+        .unwrap();
+    let content = fs::read_to_string(dir.join("docker-compose.yml")).unwrap();
+    assert!(content.contains("postgres:"));
+    assert!(!content.contains("  backend:"));
+    let _ = fs::remove_dir_all(dir);
 }
 
 fn temp_project(name: &str) -> PathBuf {
@@ -116,6 +131,30 @@ fn test_audit_ignores_placeholder_dotenv() {
         report
     );
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_audit_validates_formats_and_reports_scopes() {
+    let dir = temp_project("audit-contract");
+    fs::create_dir_all(dir.join("frontend/src")).unwrap();
+    fs::write(
+        dir.join("frontend/package.json"),
+        r#"{"dependencies":{"react":"1"}}"#,
+    )
+    .unwrap();
+    fs::write(dir.join("frontend/src/app.ts"), "const value = 1;\n").unwrap();
+    let path = dir.to_string_lossy().to_string();
+    let report = audit::run_audit_report(&path, "md,md").unwrap();
+    assert_eq!(report.exported_files, vec!["Audit_Report.md"]);
+    assert!(
+        report
+            .detected_scopes
+            .iter()
+            .any(|scope| scope.contains("javascript:react"))
+    );
+    assert!(audit::run_audit_report(&path, "md,").is_err());
+    assert!(audit::run_audit_report(&path, "yaml").is_err());
+    let _ = fs::remove_dir_all(dir);
 }
 
 /// Regression: generating twice into the same workspace must not delete the
