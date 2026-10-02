@@ -21,12 +21,12 @@ fn main() {
         Some(other) if other.starts_with('-') => {
             println!("Unknown option: {}", other);
             println!("Run 'snipe-code help' untuk daftar perintah.");
-            code(1);
+            code(2);
         }
         Some(other) => {
             println!("Unknown command: {}", other);
             println!("Run 'snipe-code help' untuk daftar perintah.");
-            code(1);
+            code(2);
         }
     }
 }
@@ -49,7 +49,8 @@ fn run_audit_cmd(args: &[String]) {
                 export_opt = Some(val.clone());
                 i += 2;
             } else {
-                i += 1;
+                eprintln!("Usage error: --export membutuhkan nilai.");
+                std::process::exit(2);
             }
         } else {
             path = args[i].clone();

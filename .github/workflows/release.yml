@@ -43,6 +43,7 @@ jobs:
           mkdir -p "$stage"
           cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "$stage/${{ matrix.binary }}"
           cp LICENSE README.md "$stage/"
+          git rev-parse HEAD > "$stage/SOURCE_REVISION"
           archive="snipe-code-${GITHUB_REF_NAME}-${{ matrix.target }}"
           if [[ "${{ matrix.archive }}" == "zip" ]]; then
             7z a "${archive}.zip" "$stage"/*
