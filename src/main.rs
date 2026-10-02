@@ -122,7 +122,7 @@ fn print_command_help(cmd: &str) {
     }
 }
 
-const HELP_TEXT: &str = r#"SNIPE-CODE CLI — Enterprise Dev-Forge
+const HELP_TEXT: &str = r#"SNIPE-CODE CLI — Rust scaffolding and heuristic audit tool
 
 USAGE
     snipe-code [COMMAND] [OPTIONS]

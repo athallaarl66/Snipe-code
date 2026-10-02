@@ -1,7 +1,7 @@
-# SNIPE-CODE CLI 🚀
-**Enterprise-Grade Project Scaffolding & Security Audit Tool**
+# SNIPE-CODE CLI
+**Rust project scaffolding and heuristic security-audit tool**
 
-SNIPE-CODE adalah tool CLI berbasis Rust yang dirancang untuk mempercepat inisialisasi proyek dengan struktur folder standar industri, keamanan bawaan (*security-baked*), dan otomatisasi alur kerja (Git, CI/CD, Docker).
+SNIPE-CODE adalah tool CLI berbasis Rust yang dirancang untuk mempercepat inisialisasi proyek dengan struktur folder proyek, pemeriksaan keamanan heuristik, dan otomatisasi alur kerja (Git, CI/CD, Docker).
 
 ---
 
@@ -13,7 +13,7 @@ SNIPE-CODE adalah tool CLI berbasis Rust yang dirancang untuk mempercepat inisia
   - `Blog / Posts` (MDX & RSS support)
   - `No Template` (Clean start)
 - 🛠️ **Multi-Stack Scaffolding**: Dukungan Next.js, React, Vue, Nuxt (Frontend) serta .NET 8, NestJS, Go, Spring Boot, Laravel (Backend).
-- 🔐 **Security First**: Otomatis generate `.env.example`, konfigurasi CORS/Helmet, dan `.gitignore` yang aman.
+- 🔐 **Safety Defaults**: Generate `.env.example`, konfigurasi stack, dan `.gitignore`; audit tetap heuristik dan tidak menggantikan security review.
 - 📋 **Security Audit**: Scan folder proyek dan ekspor laporan ke format **Markdown**, **PDF**, atau **DOCX**.
 - 🤖 **AI Workspace**: Otomatis generate `.cursorrules` dan `AGENTS.md` untuk pengalaman coding lebih baik dengan AI Agent.
 - ⚙️ **Otomasi**: Auto `git init`, `initial commit`, GitHub Actions (CI/CD), dan `docker-compose.yml`.
@@ -86,21 +86,61 @@ snipe-code --dry-run
 ```
 
 ### 3. Security Audit & Export
-Scan folder proyek Anda untuk mengecek kelengkapan file standar dan ekspor laporannya:
+Scan folder proyek dan ekspor laporan:
 ```bash
-# Scan folder saat ini dan ekspor ke PDF & DOCX
+snipe-code audit . --export md
 snipe-code audit . --export pdf,docx
 ```
-Laporan akan muncul dengan nama `Audit_Report.pdf` dan `Audit_Report.docx`.
+Format valid: `md`, `pdf`, `docx`. Duplikat dinormalisasi. Token kosong/unknown ditolak.
+
+Exit code:
+- `0`: audit selesai, tidak ada HIGH finding
+- `1`: HIGH finding terdeteksi
+- `2`: usage error, misalnya format export invalid
+- `3`: runtime/export error, misalnya path tidak ada
+
+Audit bersifat heuristik. Report mencantumkan detected context, rule groups, dan excluded paths. “No findings detected by evaluated rules” bukan jaminan proyek aman.
+
+### Supported stack verification
+| Capability | Native verification |
+|---|---|
+| Next.js, React Vite, Vue, Nuxt | `npm install`, `npm run build` |
+| NestJS | `npm install`, `npm run build` |
+| Go Gin | `go mod download`, `go test ./...`, `go build ./...` |
+| Spring Boot | `mvn test package` |
+| .NET 8 | `dotnet restore`, `dotnet test`, `dotnet build` |
+| Laravel | `composer install`, `php artisan test` |
+| PostgreSQL/MySQL Compose | `docker compose config` |
+
+Generated projects use one safe project-name destination. Existing destination requires explicit overwrite. Generation stages files first; failed generation cleans staging. Git init/commit is best effort.
+
+### Release verification
+Release archives include executable, `LICENSE`, `README.md`, and `SOURCE_REVISION`. Verify checksum:
+```bash
+sha256sum --check snipe-code-<version>-<target>.*.sha256
+```
+Verify keyless Cosign bundle:
+```bash
+cosign verify-blob --bundle archive.bundle archive
+```
+Only use commands against artifacts actually published on GitHub Releases.
 
 ---
 
 ## 🧪 Testing
 
-Tool ini dilengkapi dengan 50+ automated tests untuk menjamin kestabilan.
+Run repository quality gates:
 ```bash
-cargo test
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
 ```
+
+---
+
+## 📂 Struktur Dokumentasi
+- `docs/features/`: PRD & Technical Design.
+- `docs/production/`: Detail breakdown tugas per fitur.
 
 ---
 

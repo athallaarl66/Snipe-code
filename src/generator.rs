@@ -274,10 +274,15 @@ fn validate_staged(root: &Path, config: &GenerateConfig) -> Result<(), String> {
     };
     for rel in backend_manifests {
         let joined = root.join(rel);
-        let exists = if rel.ends_with('*') {
-            root.join(rel.trim_end_matches('*'))
-                .read_dir()
-                .map(|mut d| d.any(|e| e.is_ok()))
+        let exists = if rel.contains('*') {
+            rel.split('*')
+                .next()
+                .and_then(|prefix| root.join(prefix).read_dir().ok())
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .any(|entry| entry.path().extension().is_some_and(|ext| ext == "csproj"))
+                })
                 .unwrap_or(false)
         } else {
             joined.exists()
