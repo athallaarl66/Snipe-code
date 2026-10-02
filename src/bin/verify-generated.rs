@@ -77,6 +77,7 @@ fn run_stack_command(path: &Path, stack: &str, frontend: bool) -> Result<(), Str
         (false, "nestjs") => &[("npm", &["install"]), ("npm", &["run", "build"])],
         (false, "go-gin") => &[
             ("go", &["mod", "download"]),
+            ("go", &["mod", "tidy"]),
             ("go", &["test", "./..."]),
             ("go", &["build", "./..."]),
         ],

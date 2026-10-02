@@ -10,20 +10,37 @@ permissions:
   attestations: write
 
 jobs:
+  quality:
+    name: Release quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85.0
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-targets --all-features
+
   package:
     name: Package (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    needs: quality
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: true
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
             archive: tar.gz
             binary: snipe-code
-          - target: x86_64-pc-windows-gnu
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
             archive: zip
             binary: snipe-code.exe
           - target: x86_64-apple-darwin
+            runner: macos-13
             archive: tar.gz
             binary: snipe-code
     steps:
@@ -87,6 +104,10 @@ jobs:
           set -euo pipefail
           for archive in dist/*.tar.gz dist/*.zip; do
             cosign sign-blob --yes --bundle "${archive}.bundle" "$archive"
+            cosign verify-blob --bundle "${archive}.bundle" \
+              --certificate-identity-regexp 'https://github.com/.*/.github/workflows/.*' \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              "$archive"
           done
       - name: Publish verified release
         uses: softprops/action-gh-release@v2

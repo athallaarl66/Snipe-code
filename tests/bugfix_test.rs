@@ -157,6 +157,15 @@ fn test_audit_validates_formats_and_reports_scopes() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[test]
+fn test_readme_uses_supported_quality_and_commands() {
+    let readme = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
+    assert!(!readme.contains("Enterprise-Grade"));
+    assert!(!readme.contains("50+ automated tests"));
+    assert!(readme.contains("cargo clippy --all-targets --all-features -- -D warnings"));
+    assert!(readme.contains("cosign verify-blob --bundle"));
+}
+
 /// Regression: generating twice into the same workspace must not delete the
 /// first generated project when the second run is refused (no overwrite).
 #[test]
