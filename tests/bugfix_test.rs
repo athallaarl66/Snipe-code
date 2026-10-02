@@ -73,6 +73,21 @@ fn test_workflow_uses_npm_install_not_ci() {
     let content = fs::read_to_string(dir.join(".github/workflows/main.yml")).unwrap();
     assert!(!content.contains("npm ci"), "must not use npm ci");
     assert!(content.contains("npm install"), "must use npm install");
+    assert!(
+        !content.contains("npm run lint"),
+        "must not invoke undeclared lint script"
+    );
+}
+
+#[test]
+fn test_non_container_backend_omits_backend_compose_service() {
+    let dir = temp_project("compose-go");
+    snipe_code::docker::generate_docker_compose(&dir.to_string_lossy(), "postgresql", "go-gin")
+        .unwrap();
+    let content = fs::read_to_string(dir.join("docker-compose.yml")).unwrap();
+    assert!(content.contains("postgres:"));
+    assert!(!content.contains("  backend:"));
+    let _ = fs::remove_dir_all(dir);
 }
 
 fn temp_project(name: &str) -> PathBuf {

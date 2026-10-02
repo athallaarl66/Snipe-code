@@ -403,6 +403,8 @@ fn readme_content(config: &GenerateConfig) -> String {
                 "```bash\ncd frontend\n{}\n{}\n```\n",
                 init_cmd, install_cmd
             ));
+        } else if !install_cmd.is_empty() {
+            sections.push(format!("```bash\ncd frontend\n{}\n```\n", install_cmd));
         }
     }
 
@@ -423,6 +425,8 @@ fn readme_content(config: &GenerateConfig) -> String {
                 "```bash\ncd backend\n{}\n{}\n```\n",
                 init_cmd, install_cmd
             ));
+        } else if !install_cmd.is_empty() {
+            sections.push(format!("```bash\ncd backend\n{}\n```\n", install_cmd));
         }
     }
 

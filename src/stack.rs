@@ -495,7 +495,7 @@ CMD ["node", "dist/main.js"]
             },
             FileDef {
                 path: "main.go",
-                content: "package main\n\nimport (\n\t\"log\"\n\n\t\"github.com/gin-gonic/gin\"\n)\n\nfunc main() {\n\tr := gin.Default()\n\tr.GET(\"/\", func(c *gin.Context) {\n\t\tc.JSON(http.StatusOK, gin.H{\"message\": \"Hello World\"})\n\t})\n\n\tif err := r.Run(\":8080\"); err != nil {\n\t\tlog.Fatal(err)\n\t}\n}\n",
+                content: "package main\n\nimport (\n\t\"log\"\n\t\"net/http\"\n\n\t\"github.com/gin-gonic/gin\"\n)\n\nfunc main() {\n\tr := gin.Default()\n\tr.GET(\"/\", func(c *gin.Context) {\n\t\tc.JSON(http.StatusOK, gin.H{\"message\": \"Hello World\"})\n\t})\n\n\tif err := r.Run(\":8080\"); err != nil {\n\t\tlog.Fatal(err)\n\t}\n}\n",
             },
         ],
         init_command: "",
