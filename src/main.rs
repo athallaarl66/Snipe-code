@@ -14,6 +14,7 @@ fn main() {
             None => print_help(),
         },
         Some("faq") => print_faq(),
+        Some("version") | Some("--version") => println!("{}", env!("CARGO_PKG_VERSION")),
         Some("new") => run_new(dry_run),
         Some("audit") => run_audit_cmd(&args),
         // Backward compatible: snipe-code --dry-run
@@ -132,11 +133,13 @@ COMMANDS
                (default jika tidak ada command)
     audit      Scan folder proyek dan export laporan security audit
     help       Tampilkan bantuan ini (alias: --help, -h)
+    version    Tampilkan versi CLI yang di-compile (alias: --version)
     faq        Tampilkan FAQ (install, uninstall, troubleshooting)
 
 OPTIONS
     --dry-run      Preview struktur folder tanpa membuat file (dengan new)
     --export <f>   Format export audit: md, pdf, docx (koma, contoh: pdf,docx)
+    --version      Tampilkan versi CLI (sama dengan 'snipe-code version')
 
 CONTOH
     snipe-code                          Wizard interaktif
