@@ -173,12 +173,12 @@ fn test_laravel_scaffold_uses_supported_framework_line() {
         .iter()
         .find(|file| file.path == "composer.json")
         .unwrap();
-    assert!(
-        composer
-            .content
-            .contains("\"laravel/framework\": \"^11.0\"")
-    );
+    assert!(composer.content.contains("\"laravel/framework\": \"^12.0\""));
     assert!(composer.content.contains("\"php\": \"^8.2\""));
+    assert!(
+        !composer.content.contains("\"laravel/framework\": \"^11.0\""),
+        "Laravel 11 line is advisory-blocked for Composer"
+    );
     assert!(
         !composer
             .content
@@ -307,4 +307,122 @@ fn test_failed_generate_cleans_staging() {
         .filter(|n| n.contains("snipe-staging"))
         .collect();
     assert!(leftovers.is_empty(), "staging dir leaked: {:?}", leftovers);
+}
+
+/// Regression: the exported Markdown report must carry the real system date,
+/// never a hardcoded placeholder.
+#[test]
+fn test_markdown_report_uses_real_system_date() {
+    let dir = temp_project("report-date");
+    fs::write(dir.join(".env.example"), "FOO=bar\n").unwrap();
+
+    let before = snipe_code::date::real_date_yyyymmdd();
+    audit::run_audit(&dir.to_string_lossy(), "md").unwrap();
+    let after = snipe_code::date::real_date_yyyymmdd();
+
+    let report = fs::read_to_string(dir.join("Audit_Report.md")).unwrap();
+    let date_line = report
+        .lines()
+        .find(|line| line.starts_with("**Date:**"))
+        .expect("report must carry a Date line");
+    let value = date_line.trim_start_matches("**Date:**").trim();
+
+    assert_eq!(value.len(), 10, "date must be YYYY-MM-DD, got {:?}", value);
+    let non_digits: Vec<char> = value.chars().filter(|c| !c.is_ascii_digit()).collect();
+    assert_eq!(non_digits, vec!['-', '-'], "date must parse as YYYY-MM-DD, got {:?}", value);
+    assert!(
+        value == before || value == after,
+        "report date {value} must equal the shared helper output ({before} / {after})"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Regression: generated projects must contain the AI agent files the README
+/// advertises, at the project root.
+#[test]
+fn test_generated_project_contains_advertised_ai_agent_files() {
+    let _ws = common::Workspace::new("reg-ai-files");
+    let config = GenerateConfig {
+        project_name: "app".to_string(),
+        template_id: "none".to_string(),
+        frontend: "nextjs".to_string(),
+        backend: "none".to_string(),
+        database: "none".to_string(),
+    };
+    let result = generator::generate(&config, false).unwrap();
+
+    for file in [".cursorrules", "AGENTS.md"] {
+        assert!(
+            fs::exists(format!("app/{file}")).unwrap(),
+            "{file} must exist at the project root"
+        );
+        assert!(
+            result.files.iter().any(|f| f == file),
+            "{file} must appear in the generation report: {:?}",
+            result.files
+        );
+    }
+}
+
+/// Regression: every reported path must resolve inside the destination project
+/// tree — generation must never touch a home-directory agent configuration.
+#[test]
+fn test_generated_files_stay_inside_project_tree() {
+    let _ws = common::Workspace::new("reg-containment");
+    let config = GenerateConfig {
+        project_name: "app".to_string(),
+        template_id: "none".to_string(),
+        frontend: "nextjs".to_string(),
+        backend: "nestjs".to_string(),
+        database: "postgresql".to_string(),
+    };
+    let result = generator::generate(&config, false).unwrap();
+    let dest = generator::resolve_destination(&config.project_name).unwrap();
+
+    for file in &result.files {
+        let relative = std::path::Path::new(file);
+        assert!(!relative.is_absolute(), "generated path must be project-relative: {file}");
+        let has_parent = file.split('/').any(|part| part == "..");
+        assert!(!has_parent, "generated path must not escape the project tree: {file}");
+        let joined = dest.join(file);
+        assert!(joined.starts_with(&dest), "generated path escapes the project tree: {file}");
+        assert!(joined.exists(), "reported file was not written: {file}");
+    }
+}
+
+/// Regression: README feature bullets must only name artifacts the generator
+/// actually produces.
+#[test]
+fn test_readme_documented_outputs_are_generated() {
+    let readme = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
+    let documented = [
+        ".cursorrules",
+        "AGENTS.md",
+        ".ai-workspace/rules.md",
+        ".ai-workspace/rules.mdc",
+        ".env.example",
+        ".gitignore",
+        "docker-compose.yml",
+    ];
+    for token in documented {
+        assert!(readme.contains(token), "README must document {token}");
+    }
+
+    let _ws = common::Workspace::new("reg-readme-outputs");
+    let config = GenerateConfig {
+        project_name: "app".to_string(),
+        template_id: "none".to_string(),
+        frontend: "nextjs".to_string(),
+        backend: "nestjs".to_string(),
+        database: "postgresql".to_string(),
+    };
+    let result = generator::generate(&config, false).unwrap();
+    for token in documented {
+        assert!(
+            result.files.iter().any(|f| f == token),
+            "README documents {token} but generation never produces it: {:?}",
+            result.files
+        );
+    }
 }
