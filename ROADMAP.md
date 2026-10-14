@@ -17,9 +17,9 @@ are planning artifacts (proposal, design, specs, tasks).
 | 2 | `refactor-templates-and-test-scaffold` | 23 | `template-sources` | `project-scaffolding` |
 | 3 | `feat-verify` | 19 | `project-verification` | — |
 | 4 | `feat-ai-integration` | 19 | `ai-tool-integration` | `ai-workspace-generation` |
-| 5 | `feat-analyze-and-ship` | 26 | `project-analysis`, `distribution` | `security-audit` |
+| 5 | `feat-analyze-and-ship` | 33 | `project-analysis`, `distribution` | `security-audit` |
 
-102 tasks, 27 planning artifacts, 10 capability files.
+109 tasks, 27 planning artifacts, 12 spec deltas covering 9 capabilities.
 
 ---
 
@@ -149,19 +149,28 @@ set matches the registry, with overlapping paths deduplicated.
 release.yml` has never run — zero tags, zero releases — so the only install path is
 "clone it and have Rust". The workflow also asserts its archive count is exactly
 `3`, so it breaks the moment a platform is added, and `technical.md` advertises a
-macOS ARM build the matrix does not produce.
+macOS ARM build the matrix does not produce. On top of that, `Cargo.toml` declares
+none of `description`, `license`, `repository`, `readme`, `keywords`, or
+`categories`, so `cargo publish` would be rejected outright and there is no route
+onto the ecosystem's package registry. The repository itself also has no
+description and no topics, which is why GitHub shows "No description, website, or
+topics provided".
 
 **Changes.** `snipe-code analyze [PATH]` reports languages and size, structure and
 entry points, and declared dependencies per manifest, read-only and offline, with a
 limits section and structured output. Audit findings gain structured output too.
 The release target list moves to one file that both the matrix and the publish
 assertions read, macOS ARM is added, and `install.sh` / `install.ps1` install
-without a toolchain after verifying the published checksum. README becomes English
-with the install path first.
+without a toolchain after verifying the published checksum. `Cargo.toml` gains its
+publication metadata, and the release also publishes the crate — idempotently,
+after the quality gate — so `cargo install` works. The repository gets a
+description and topics; the homepage stays unset until a project site exists.
+README becomes English with the install path first.
 
 **Acceptance.** A tagged release publishes one archive per documented platform,
-each with a checksum and a cosign bundle, and installing from it works on a machine
-with no Rust.
+each with a checksum and a cosign bundle; the crate version is published and
+installable through the package manager; the repository shows a description and
+topics; and installing from a release works on a machine with no Rust.
 
 ---
 
@@ -207,5 +216,8 @@ Deliberately deferred, so they are tracked rather than forgotten:
 - Enriching the generated project README.
 - A `list` subcommand for enumerating stacks and templates.
 - Widening the audit scan beyond its current file types (no Python, no Ruby).
+- A Homebrew tap or any package manager other than the ecosystem's own registry.
+- A project website or documentation site; the repository homepage stays unset
+  until one exists.
 
 These would form a sixth change.

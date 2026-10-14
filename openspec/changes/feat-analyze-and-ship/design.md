@@ -36,7 +36,9 @@ See `proposal.md` – Why for motivation. What exists and what is known:
 
 - A developer can point the tool at an unfamiliar repository and learn what it is.
 - A developer with no Rust toolchain can install the tool and verify the download.
-- A tagged release publishes exactly the platforms the documentation claims.
+- A Rust developer can install the tool through the ecosystem's own package manager.
+- A tagged release publishes exactly the platforms the documentation claims, plus
+  the crate itself.
 - Analysis and audit both emit machine-readable output.
 
 **Non-Goals:**
@@ -44,8 +46,9 @@ See `proposal.md` – Why for motivation. What exists and what is known:
 - Any build toolchain change: analysis is read-only file inspection.
 - An AST, lint, or semantic analysis of the target project.
 - A code-versus-comment line split, which would need a per-language parser.
-- Publishing to package managers or a Homebrew tap.
-- Promotion or discoverability work beyond repository topics and badges.
+- A Homebrew tap or any package manager other than the ecosystem's own registry.
+- Promotion or discoverability work beyond the repository description, topics, and
+  badges.
 
 ## Decisions
 
@@ -113,6 +116,30 @@ onto the install path. Nothing is piped into a shell, a failed check aborts with
 non-zero status, and no partial binary is left behind. A checksum mismatch is a hard
 failure, not a warning.
 
+### Publication metadata lives in the manifest, and the release publishes the crate
+
+`Cargo.toml` gains `description`, `license = "MIT"`, `repository`, `readme`,
+`keywords`, and `categories`. Without a description and a license the registry
+rejects a publish outright, so this is a prerequisite rather than polish; the
+declared license is also what a registry and a license scanner report to users, so it
+must match the `LICENSE` file, which GitHub already detects as MIT.
+
+The release then publishes the crate alongside the archives. `cargo install` needs a
+Rust toolchain, so this is not the no-toolchain path — it is the path a Rust developer
+prefers, and it removes the clone-and-build step. The step runs after the `quality`
+job, so a version cannot be published while the gate is red, and it checks the
+registry first and skips a version that already exists, so re-running a partially
+failed release is safe.
+
+*Alternative:* publish the crate manually, outside the pipeline. Rejected — the
+failure mode is forgetting, and the tag already triggers everything else.
+
+### Repository description is set; homepage only once a site exists
+
+The repository carries a description and topics naming what the tool is and what it
+does, applied through repository settings rather than code. The homepage is left
+unset until a project site exists: a placeholder link is worse than showing nothing.
+
 ### English README with the Indonesian one preserved
 
 The repository is public and the audience is international, so the primary README
@@ -146,7 +173,18 @@ English text rather than reverted.
   set]** → Called out as a manual step in the task list rather than assumed done.
 - **[Distribution removes install friction but does not create demand]** → Stated
   plainly: this change makes the tool installable and legible, not popular.
-  Discoverability beyond topics and badges is out of scope.
+  Discoverability beyond the description, topics, and badges is out of scope.
+- **[A published crate version cannot be deleted, only yanked]** → The publish step
+  runs only after the quality gate, asserts the crate version matches the release tag,
+  and is preceded by a packaging check, so a metadata error is caught before anything
+  is uploaded. Withdrawing a release means yanking and publishing a patch version —
+  a documented manual procedure, not an automated one.
+- **[A crate published while the GitHub release fails, or the reverse, leaves the two
+  out of step]** → The crate step is idempotent: it skips a version the registry
+  already holds, so re-running the workflow converges instead of colliding.
+- **[The registry name is a first-come claim and could be taken before the release is
+  cut]** → The name is unclaimed today; publishing is wired in the same change that
+  cuts the release, so the window is as small as it can be without publishing earlier.
 
 ## Migration Plan
 
@@ -159,16 +197,18 @@ Ordering and cross-change interaction:
    `openspec/specs/security-audit/spec.md`, which this change appends to, and it
    makes CI green, which the release depends on.
 2. Within this change: analysis core → structured output for `analyze` and `audit` →
-   single-source release targets plus the macOS ARM target → installers → English
-   README and repository topics → cut the first release.
+   single-source release targets plus the macOS ARM target → manifest publication
+   metadata → idempotent crate publish in the release pipeline → installers → English
+   README, repository description and topics → cut the first release.
 3. The README is edited by more than one change in this set
    (`fix-ci-and-report-truth` corrects claims, this change rewrites it in English).
    Apply them in that order so the corrections are carried into the rewrite, and
    never revert the earlier corrections.
 
-Rollback: revert the commit. A published release is not withdrawn by the revert; if
-the first release is defective, delete the tag and re-cut it — that is a deliberate
-manual step, not part of the code change.
+Rollback: revert the commit. A published release is not withdrawn by the revert, and
+a published crate version can be yanked but not deleted; if the first release is
+defective, delete the tag, yank the crate version, and re-cut it — a deliberate manual
+step, not part of the code change.
 
 Version for the first release: `v0.1.0`, matching `Cargo.toml`. Pre-1.0 is honest
 for a tool whose command surface is still being completed.

@@ -71,3 +71,59 @@ An install that cannot fetch or verify a release asset MUST exit non-zero with a
 #### Scenario: Integrity check failure
 - **WHEN** a downloaded asset fails its integrity check
 - **THEN** the install aborts without placing the binary on the install path
+
+### Requirement: The package manifest carries complete publication metadata
+The package manifest MUST declare everything a registry requires to accept a publish, and the license it declares MUST name the same license as the repository's license file.
+
+#### Scenario: Registry-required metadata is present
+- **WHEN** the package manifest is inspected
+- **THEN** it declares a description, a license, a repository, a readme, keywords, and categories
+
+#### Scenario: Declared license matches the license file
+- **WHEN** the license declared in the manifest is compared with the repository license file
+- **THEN** both name the same license
+
+#### Scenario: Packaging check passes
+- **WHEN** the packaging check runs against the manifest without uploading anything
+- **THEN** it completes without a missing-metadata error
+
+### Requirement: A release publishes the crate to the package registry
+A tagged release MUST publish the crate version to the ecosystem's package registry, so the tool can be installed through that ecosystem's own installer without cloning the repository.
+
+#### Scenario: Tagged release publishes the crate
+- **WHEN** a version tag is pushed
+- **THEN** the crate version is published to the registry
+
+#### Scenario: Registry version matches the release tag
+- **WHEN** the release completes
+- **THEN** the version on the registry matches the release tag
+
+#### Scenario: Nothing is published while the quality gate is red
+- **WHEN** the quality gate fails
+- **THEN** no crate version is published
+
+#### Scenario: Re-running a partially failed release
+- **WHEN** the release is re-run and the registry already holds that version
+- **THEN** the publish step reports the existing version and does not fail the run
+
+### Requirement: The tool is installable through the ecosystem package manager
+The tool MUST be installable through its own ecosystem's package manager, as an alternative path for users who have that ecosystem's toolchain.
+
+#### Scenario: Install through the package manager
+- **WHEN** a user with that toolchain installs the tool through the package manager
+- **THEN** the released version is installed without cloning the repository
+
+### Requirement: Repository presentation states what the project is
+The repository MUST carry a description and topics naming what the tool is and what it does, and MUST NOT link a homepage that does not exist.
+
+#### Scenario: Description present
+- **WHEN** the repository is viewed
+- **THEN** it shows a description of the tool
+
+#### Scenario: Topics cover the capabilities
+- **WHEN** the repository topics are inspected
+- **THEN** they name the ecosystem, the implementation language, and what the tool does
+
+#### Scenario: No placeholder homepage
+- **WHEN** no project site exists
+- **THEN** the repository homepage is unset rather than pointing at a placeholder

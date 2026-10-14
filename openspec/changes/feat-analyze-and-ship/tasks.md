@@ -27,25 +27,35 @@
 - [ ] 4.2 Write `install.ps1` with the same behaviour for Windows using the zip asset; verify by installing into a temporary directory
 - [ ] 4.3 Verify the failure paths: a fetch failure and a checksum mismatch must each exit non-zero, explain the failure, leave no partial binary, and never pipe anything into a shell; verify by forcing each failure in a test run and checking the exit status and the install directory
 
-## 5. Documentation and repository discovery
+## 5. Publication metadata and crate publishing
 
-- [ ] 5.1 Rewrite the README in English with the install path first, carrying over the corrections from `fix-ci-and-report-truth` rather than reverting them, and preserving the existing Indonesian README as a linked second file; verify by following the documented install steps from a clean environment
-- [ ] 5.2 Document the `analyze` command, its limits section, and its structured-output option in the README; verify with a test asserting the README documents the command
-- [ ] 5.3 Add the supported-platform table to the README, generated from the same target list so it cannot drift; verify by comparing the table against the target file
-- [ ] 5.4 Add repository topics and build badges; this is a repository-settings step applied by the owner, not a code change — record the applied topics in the pull request description
+- [ ] 5.1 Add the publication metadata to `Cargo.toml` — `description`, `license = "MIT"`, `repository`, `readme`, `keywords`, and `categories` — and confirm the declared license matches the `LICENSE` file that GitHub detects as MIT; verify with `cargo publish --dry-run` completing without a missing-metadata error
+- [ ] 5.2 Add an idempotent crate-publish step to the release workflow, ordered after the quality gate, that checks the registry first and skips a version already published; verify by running the step against an already-published version and confirming it reports the existing version without failing the run
+- [ ] 5.3 Assert the crate version matches the release tag before publishing, so a mismatch fails the release instead of publishing the wrong version; verify with a deliberately mismatched tag on a scratch branch
+- [ ] 5.4 Confirm nothing is published while the quality gate is red, by checking that the publish job's dependency chain includes the quality gate; verify by reading the workflow's job dependencies and by a deliberately failing gate on a scratch branch
 
-## 6. First release
+## 6. Documentation and repository discovery
 
-- [ ] 6.1 Confirm every prior change in this set has landed and CI is green, then tag `v0.1.0` matching `Cargo.toml`
-- [ ] 6.2 Confirm the release publishes one archive per target, each containing the binary, the license, and the source revision, with a checksum and a cosign bundle for each
-- [ ] 6.3 Verify a checksum against a downloaded archive, and verify a cosign bundle against the documented identity
-- [ ] 6.4 Install from the published release with `install.sh` into a temporary directory and confirm the installed binary reports the released version
+- [ ] 6.1 Rewrite the README in English with the install path first, carrying over the corrections from `fix-ci-and-report-truth` rather than reverting them, and preserving the existing Indonesian README as a linked second file; verify by following the documented install steps from a clean environment
+- [ ] 6.2 Document the `analyze` command, its limits section, and its structured-output option in the README; verify with a test asserting the README documents the command
+- [ ] 6.3 Add the supported-platform table to the README, generated from the same target list so it cannot drift; verify by comparing the table against the target file
+- [ ] 6.4 Document both install paths — the shell installers and the ecosystem package manager — and state what each one requires; verify with a test asserting the README documents both paths
+- [ ] 6.5 Set the repository description and topics, and leave the homepage unset until a project site exists; this is a repository-settings step applied by the owner, not a code change — record the applied values in the pull request description
 
-## 7. Integration verification
+## 7. First release
 
-- [ ] 7.1 Run the full local gate — `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets --all-features` — and confirm all three exit 0
-- [ ] 7.2 Run `analyze` against this repository itself and confirm the reported languages, dependencies, and limits match what the repository actually contains
-- [ ] 7.3 Confirm CI is green and record the run URL
+- [ ] 7.1 Confirm every prior change in this set has landed and CI is green, then tag `v0.1.0` matching `Cargo.toml`
+- [ ] 7.2 Confirm the release publishes one archive per target, each containing the binary, the license, and the source revision, with a checksum and a cosign bundle for each
+- [ ] 7.3 Confirm the crate version is published, and that the registry page shows the description and the MIT license
+- [ ] 7.4 Verify a checksum against a downloaded archive, and verify a cosign bundle against the documented identity
+- [ ] 7.5 Install from the published release with `install.sh` into a temporary directory and confirm the installed binary reports the released version
+- [ ] 7.6 Install through the ecosystem package manager and confirm the installed binary reports the released version
+
+## 8. Integration verification
+
+- [ ] 8.1 Run the full local gate — `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets --all-features` — and confirm all three exit 0
+- [ ] 8.2 Run `analyze` against this repository itself and confirm the reported languages, dependencies, and limits match what the repository actually contains
+- [ ] 8.3 Confirm CI is green and record the run URL
 
 ## Workflow follow-up
 

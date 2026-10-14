@@ -20,8 +20,15 @@ macOS ARM build and lists `macos-arm64`, while the workflow builds
 `x86_64-apple-darwin`. And the workflow's own publish job asserts the archive count
 is exactly three, so it fails the moment a platform is added.
 
+There is also no route onto the ecosystem's own package registry. `Cargo.toml`
+declares none of `description`, `license`, `repository`, `readme`, `keywords`, or
+`categories`, so `cargo publish` would be rejected outright for missing required
+metadata, and the repository shows GitHub's "No packages published" with no way to
+change that. The `snipe-code` name on crates.io is still unclaimed, so the path is
+open; it is simply not wired.
+
 This change adds the analysis command and closes the distribution gap so the tool
-can actually be installed and seen.
+can actually be installed, published, and found.
 
 ## What Changes
 
@@ -43,9 +50,17 @@ can actually be installed and seen.
 - **Install paths that need no Rust toolchain**: a POSIX shell installer and a
   Windows installer, both verifying the published checksum and signature and both
   failing loudly instead of placing an unverified or partial binary.
-- **Repository discovery**: topics and badges so the project is findable, and an
-  English README with the install path up front — the repository is public and the
-  audience is international.
+- **The package manifest gains its publication metadata** — description, license,
+  repository, readme, keywords, and categories — so a publish is not rejected and
+  the project describes itself on a registry.
+- **A tagged release also publishes the crate**, so a Rust developer can
+  `cargo install` the tool instead of using a shell installer. The publish step is
+  idempotent, so re-running a partially failed release does not collide with a
+  version that is already published.
+- **Repository discovery**: a repository description, topics, and badges so the
+  project is findable, plus an English README with the install path up front — the
+  repository is public and the audience is international. A homepage is set only
+  once a project site actually exists.
 
 ## Capabilities
 
@@ -54,8 +69,8 @@ can actually be installed and seen.
 - `project-analysis`: what the tool reports about an existing project's languages,
   size, structure, entry points, and declared dependencies, and in what form.
 - `distribution`: the platform targets built per release, the install paths offered
-  to users who have no Rust toolchain, and the integrity information published with
-  each release.
+  to users — with and without a build toolchain — and the integrity information and
+  publication metadata that accompany each release.
 
 ### Modified Capabilities
 
@@ -75,13 +90,16 @@ can actually be installed and seen.
 - `src/main.rs` — route `analyze` and document it in the help text.
 - `src/lib.rs` — expose the new module.
 - `.github/workflows/release.yml` — add the macOS ARM target, derive the publish
-  archive-count assertion from the built targets, and correct any target naming that
+  archive-count assertion from the built targets, add an idempotent crate-publish
+  step that runs after the quality gate, and correct any target naming that
   disagreed with the documentation.
+- `Cargo.toml` — add the publication metadata the registry requires, so the
+  packaging check passes and a publish is not rejected for a missing field.
 - `install.sh`, `install.ps1` — new installers.
 - `README.md` — English rewrite with the install path first, the command list, and
   the supported-platform table; the corrections from `fix-ci-and-report-truth` are
   carried into it rather than reverted.
-- Repository settings — topics, and the first tagged release.
+- Repository settings — description, topics, and the first tagged release.
 - Tests — language and size counting with excluded directories, entry-point and
   manifest detection, the unrecognized-content report, and structured-output
   agreement with the human-readable form.
@@ -96,6 +114,7 @@ Deliberately not included, so they are tracked rather than silently dropped:
   content today, and enriching the generated project README.
 - A `list` subcommand for enumerating stacks and templates.
 - Widening the audit scan beyond its current file-type set (no Python or Ruby).
+- A Homebrew tap or any package manager other than the ecosystem's own registry.
 
 ## Dependencies
 
