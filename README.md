@@ -13,10 +13,10 @@ SNIPE-CODE adalah tool CLI berbasis Rust yang dirancang untuk mempercepat inisia
   - `Portfolio` (Showcase ready)
   - `Blog / Posts` (MDX & RSS support)
   - `No Template` (Clean start)
-- 🛠️ **Multi-Stack Scaffolding**: Dukungan Next.js, React, Vue, Nuxt (Frontend) serta .NET 8, NestJS, Go, Spring Boot, Laravel 11 (Backend).
+- 🛠️ **Multi-Stack Scaffolding**: Dukungan Next.js, React, Vue, Nuxt (Frontend) serta .NET 8, NestJS, Go, Spring Boot, Laravel 12 (Backend).
 - 🔐 **Safety Defaults**: Generate `.env.example`, konfigurasi stack, dan `.gitignore`; audit tetap heuristik dan tidak menggantikan security review.
 - 📋 **Security Audit**: Scan folder proyek dan ekspor laporan ke format **Markdown**, **PDF**, atau **DOCX**.
-- 🤖 **AI Workspace**: Otomatis generate `.cursorrules` dan `AGENTS.md` untuk pengalaman coding lebih baik dengan AI Agent.
+- 🤖 **AI Workspace**: Otomatis generate `.cursorrules`, `AGENTS.md`, dan folder `.ai-workspace/` (`.ai-workspace/rules.md`, `.ai-workspace/rules.mdc`) untuk pengalaman coding lebih baik dengan AI Agent.
 - ⚙️ **Otomasi**: Auto `git init`, `initial commit`, GitHub Actions (CI/CD), dan `docker-compose.yml`.
 
 ---
@@ -28,12 +28,12 @@ Ada 3 cara — pilih sesuai kebutuhan. Semua butuh binary hasil compile; bedanya
 ### Opsi A — Build dari Source (untuk developer / punya Rust)
 
 ```bash
-git clone https://github.com/athallaarl66/snipe-code.git
-cd snipe-code
+git clone https://github.com/athallaarl66/Snipe-code.git
+cd Snipe-code
 cargo build --release
 ```
 
-Binary ada di `target/release/snipe-code.exe`. Jalankan langsung dari sana, atau salin ke folder mana pun (portable — bisa dibawa ke device lain tanpa install apa pun).
+Binary ada di `target/release/snipe-code` (`target/release/snipe-code.exe` di Windows). Jalankan langsung dari sana, atau salin ke folder mana pun (portable — bisa dibawa ke device lain tanpa install apa pun).
 
 **Catatan storage:** folder `target/` hasil compile bisa ratusan MB. Binary-nya sendiri kecil (~5MB). Setelah selesai, hapus artifact compile dengan:
 
@@ -117,15 +117,15 @@ Audit bersifat heuristik. Report mencantumkan detected context, rule groups, dan
 
 ### Supported stack verification
 
-| Capability                     | Native verification                                  |
-| ------------------------------ | ---------------------------------------------------- |
-| Next.js, React Vite, Vue, Nuxt | `npm install`, `npm run build`                       |
-| NestJS                         | `npm install`, `npm run build`                       |
-| Go Gin                         | `go mod download`, `go test ./...`, `go build ./...` |
-| Spring Boot                    | `mvn test package`                                   |
-| .NET 8                         | `dotnet restore`, `dotnet test`, `dotnet build`      |
-| Laravel                        | `composer install`, `php artisan test`               |
-| PostgreSQL/MySQL Compose       | `docker compose config`                              |
+| Capability                     | Native verification (commands run by CI)                              |
+| ------------------------------ | --------------------------------------------------------------------- |
+| Next.js, React Vite, Vue, Nuxt | `npm install`, `npm run build`                                         |
+| NestJS                         | `npm install`, `npm run build`                                         |
+| Go Gin                         | `go mod download`, `go mod tidy`, `go test ./...`, `go build ./...`    |
+| Spring Boot                    | `mvn test package`                                                     |
+| .NET 8                         | `dotnet restore`, `dotnet test --no-restore`, `dotnet build --no-restore` |
+| Laravel 12                     | `composer install --no-interaction --no-progress`, `php artisan test`   |
+| PostgreSQL/MySQL Compose       | `docker compose config`                                                |
 
 Generated projects use one safe project-name destination. Existing destination requires explicit overwrite. Generation stages files first; failed generation cleans staging. Git init/commit is best effort.
 

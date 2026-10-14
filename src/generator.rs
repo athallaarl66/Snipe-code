@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::date;
+
 #[derive(Debug)]
 pub struct GenerateConfig {
     pub project_name: String,
@@ -242,6 +244,8 @@ fn write_all(root: &Path, config: &GenerateConfig) -> Result<GenerateResult, Str
     crate::ai_workspace::generate_ai_workspace(&root.to_string_lossy())?;
     result.files.push(".ai-workspace/rules.md".to_string());
     result.files.push(".ai-workspace/rules.mdc".to_string());
+    result.files.push(".cursorrules".to_string());
+    result.files.push("AGENTS.md".to_string());
 
     Ok(result)
 }
@@ -453,7 +457,7 @@ fn template_file_content(template_source: &str) -> String {
 }"#
         .to_string(),
         "blog-sample-post" => {
-            let date = real_date_yyyymmdd();
+            let date = date::real_date_yyyymmdd();
             format!(
                 r#"---
 title: "Hello World"
@@ -579,6 +583,8 @@ pub fn dry_run_preview(config: &GenerateConfig) -> String {
     entries.push(".env.example".to_string());
     entries.push(".gitignore".to_string());
     entries.push("README.md".to_string());
+    entries.push(".cursorrules".to_string());
+    entries.push("AGENTS.md".to_string());
 
     format_tree(&config.project_name, &entries)
 }
@@ -600,50 +606,14 @@ fn format_tree(project_name: &str, entries: &[String]) -> String {
     lines.join("\n")
 }
 
-// ponytail: dedupe with the shared date helper from feat-stack-aware-audit when merged
-fn real_date_yyyymmdd() -> String {
-    let days = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() / 86400)
-        .unwrap_or(0);
-    let (y, m, d) = civil_from_days(days as i64);
-    format!("{:04}-{:02}-{:02}", y, m, d)
-}
-
 fn rss_date() -> String {
     let days = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() / 86400)
         .unwrap_or(0);
-    let (y, m, d) = civil_from_days(days as i64);
-    let dow = day_of_week(y, m, d);
-    let month = MONTHS[m as usize - 1];
+    let (y, m, d) = date::civil_from_days(days as i64);
+    let dow = date::day_of_week(y, m, d);
+    let month = date::MONTHS[m as usize - 1];
     format!("{}, {:02} {} {:04} 00:00:00 GMT", dow, d, month, y)
 }
 
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
-}
-
-fn day_of_week(y: i64, m: u32, d: u32) -> &'static str {
-    static OFFSETS: [i64; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
-    let mut yy = y;
-    if m < 3 {
-        yy -= 1;
-    }
-    let dow = (yy + yy / 4 - yy / 100 + yy / 400 + OFFSETS[(m as usize) - 1] + d as i64) % 7;
-    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow as usize]
-}
-
-const MONTHS: [&str; 12] = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];

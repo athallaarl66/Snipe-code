@@ -47,6 +47,8 @@ fn test_dry_run_output_contains_root_files() {
     assert!(output.contains(".env.example"));
     assert!(output.contains(".gitignore"));
     assert!(output.contains("README.md"));
+    assert!(output.contains(".cursorrules"));
+    assert!(output.contains("AGENTS.md"));
 }
 
 #[test]

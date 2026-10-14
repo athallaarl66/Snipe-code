@@ -599,18 +599,18 @@ CMD ["node", "dist/main.js"]
                 content: r#"{
     "name": "laravel/laravel",
     "type": "project",
-    "description": "Laravel 11 application.",
+    "description": "Laravel 12 application.",
     "keywords": ["laravel", "framework"],
     "license": "MIT",
     "require": {
         "php": "^8.2",
-        "laravel/framework": "^11.0"
+        "laravel/framework": "^12.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
         "mockery/mockery": "^1.6",
-        "nunomaduro/collision": "^8.1",
-        "phpunit/phpunit": "^11.0"
+        "nunomaduro/collision": "^8.6",
+        "phpunit/phpunit": "^11.5.50"
     },
     "autoload": {
         "psr-4": {
@@ -1275,6 +1275,23 @@ class ExampleTest extends TestCase
         $response = $this->get('/');
 
         $response->assertStatus(200);
+    }
+}
+"#,
+            },
+            FileDef {
+                path: "tests/Unit/ExampleTest.php",
+                content: r#"<?php
+
+namespace Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+
+class ExampleTest extends TestCase
+{
+    public function test_that_true_is_true(): void
+    {
+        $this->assertTrue(true);
     }
 }
 "#,

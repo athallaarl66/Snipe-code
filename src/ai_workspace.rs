@@ -9,6 +9,9 @@ pub fn generate_ai_workspace(project_path: &str) -> Result<(), String> {
     // Generate rules for different AI IDEs
     fs::write(workspace_dir.join("rules.md"), windsurf_rules()).map_err(|e| e.to_string())?;
     fs::write(workspace_dir.join("rules.mdc"), cursor_rules()).map_err(|e| e.to_string())?;
+    // Project-root agent instruction files. Written inside the project tree only.
+    fs::write(path.join(".cursorrules"), cursor_rules()).map_err(|e| e.to_string())?;
+    fs::write(path.join("AGENTS.md"), agents_md()).map_err(|e| e.to_string())?;
     let audit_dir = workspace_dir.join("audit");
     fs::create_dir_all(&audit_dir).map_err(|e| e.to_string())?;
     fs::write(audit_dir.join(".gitkeep"), "").map_err(|e| e.to_string())?;
@@ -68,5 +71,30 @@ fn cursor_rules() -> &'static str {
 - Code-focused output
 - Concise responses
 - No unnecessary verbosity
+"#
+}
+
+/// Cross-tool instruction file (`AGENTS.md`) written at the generated project root.
+fn agents_md() -> &'static str {
+    r#"# AGENTS.md
+
+Instructions for AI coding agents (Cursor, Claude Code, Codex, Copilot, Windsurf,
+Antigravity) working in this project.
+
+## Security Rules (CRITICAL)
+- NEVER hardcode secrets, API keys, or passwords — use environment variables
+- ALWAYS use parameterized queries instead of string-concatenated SQL
+- ALWAYS sanitize user input before rendering it
+- NEVER pass user input to `eval()` or `exec()`
+- ALWAYS validate input at trust boundaries
+
+## Workflow
+- Read this file and `.ai-workspace/rules.md` before editing code
+- Keep changes minimal and scoped to the request
+- Run the project's build and test command before claiming a change works
+
+## Token Efficiency
+- Prefer code over prose; do not restate the request back
+- State the change and the reason, then stop
 "#
 }

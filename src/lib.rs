@@ -2,6 +2,7 @@ pub mod ai_workspace;
 pub mod audit;
 pub mod cicd;
 pub mod commands;
+pub mod date;
 pub mod docker;
 pub mod generator;
 pub mod git;
