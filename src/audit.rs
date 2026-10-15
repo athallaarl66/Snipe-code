@@ -139,7 +139,7 @@ fn validate_formats(value: &str) -> Result<Vec<String>, String> {
     Ok(formats)
 }
 
-fn detect_scopes(path: &Path) -> Vec<String> {
+pub(crate) fn detect_scopes(path: &Path) -> Vec<String> {
     let mut scopes = vec!["common".to_string()];
     if path.join("frontend/package.json").exists() {
         scopes.push("frontend".to_string());
@@ -225,7 +225,7 @@ fn detect_scopes(path: &Path) -> Vec<String> {
     scopes
 }
 
-fn find_named_files(path: &Path, names: &[&str]) -> Vec<std::path::PathBuf> {
+pub(crate) fn find_named_files(path: &Path, names: &[&str]) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
     let Ok(entries) = fs::read_dir(path) else {
         return files;
@@ -428,7 +428,7 @@ fn check_supported_stack_sources(path: &Path, findings: &mut Vec<Finding>) {
     }
 }
 
-fn find_files(path: &Path, extension: &str) -> Vec<std::path::PathBuf> {
+pub(crate) fn find_files(path: &Path, extension: &str) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
     if let Ok(entries) = fs::read_dir(path) {
         for entry in entries.flatten() {

@@ -1,5 +1,6 @@
 use snipe_code::audit;
 use snipe_code::commands::new;
+use snipe_code::verify;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -17,6 +18,7 @@ fn main() {
         Some("version") | Some("--version") => println!("{}", env!("CARGO_PKG_VERSION")),
         Some("new") => run_new(dry_run),
         Some("audit") => run_audit_cmd(&args),
+        Some("verify") => run_verify_cmd(&args),
         // Backward compatible: snipe-code --dry-run
         Some("--dry-run") => run_new(true),
         Some(other) if other.starts_with('-') => {
@@ -101,6 +103,33 @@ fn run_audit_cmd(args: &[String]) {
     }
 }
 
+fn run_verify_cmd(args: &[String]) {
+    let rest: Vec<String> = args.iter().skip(2).cloned().collect();
+    if rest.iter().any(|token| token == "--help" || token == "-h") {
+        println!("{}", VERIFY_HELP);
+        return;
+    }
+    let options = match verify::Options::parse(&rest) {
+        Ok(options) => options,
+        Err(error) => {
+            eprintln!("Usage error: {}", error);
+            std::process::exit(2);
+        }
+    };
+    let report = match verify::run(&options.path, &options, &verify::exec::run) {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("Usage error: {}", error);
+            std::process::exit(2);
+        }
+    };
+    if report.parts.is_empty() {
+        eprintln!("verify: no gates found in {}", options.path.display());
+    }
+    verify::print_report(&report);
+    std::process::exit(verify::exit_status(&report));
+}
+
 fn print_help() {
     println!("{}", HELP_TEXT);
     println!();
@@ -114,6 +143,7 @@ fn print_faq() {
 fn print_command_help(cmd: &str) {
     match cmd {
         "audit" => println!("{}", AUDIT_HELP),
+        "verify" => println!("{}", VERIFY_HELP),
         "new" => println!("{}", NEW_HELP),
         "help" => print_help(),
         _ => {
@@ -132,6 +162,7 @@ COMMANDS
     new        Jalankan wizard interaktif untuk generate proyek baru
                (default jika tidak ada command)
     audit      Scan folder proyek dan export laporan security audit
+    verify     Periksa gate kualitas proyek yang sudah ada
     help       Tampilkan bantuan ini (alias: --help, -h)
     version    Tampilkan versi CLI yang di-compile (alias: --version)
     faq        Tampilkan FAQ (install, uninstall, troubleshooting)
@@ -139,6 +170,9 @@ COMMANDS
 OPTIONS
     --dry-run      Preview struktur folder tanpa membuat file (dengan new)
     --export <f>   Format export audit: md, pdf, docx (koma, contoh: pdf,docx)
+    --only <g>     (verify) Batasi ke satu gate: install, lint, typecheck, test,
+                   build, security
+    --security     (verify) Tambahkan gate kerentanan dependency
     --version      Tampilkan versi CLI (sama dengan 'snipe-code version')
 
 CONTOH
@@ -148,10 +182,14 @@ CONTOH
     snipe-code audit .                  Scan folder ini (pilih format interaktif)
     snipe-code audit . --export pdf,docx
                                         Scan dan export PDF + DOCX langsung
+    snipe-code verify .                 Periksa gate proyek di direktori ini
+    snipe-code verify ../app --only test
+                                        Jalankan hanya gate test
 
 DETAIL PER COMMAND
     snipe-code help new
     snipe-code help audit
+    snipe-code help verify
 "#;
 
 const FAQ_TEXT: &str = r#"FAQ
@@ -223,4 +261,39 @@ CONTOH
     snipe-code audit .                        Pilih format interaktif
     snipe-code audit . --export pdf,docx      Export PDF + DOCX langsung
     snipe-code audit ../proyek --export md    Export markdown
+"#;
+
+const VERIFY_HELP: &str = r#"snipe-code verify — Periksa gate kualitas proyek
+
+USAGE
+    snipe-code verify [PATH] [--only <gate>] [--security]
+
+DESKRIPSI
+    Membaca manifest proyek lalu menjalankan gate yang memang dideklarasikan:
+    install, lint, typecheck, test, build. Gate yang tidak dideklarasikan
+    dilaporkan sebagai not-applicable, bukan dijalankan.
+
+    Perintah ini menjalankan tool milik proyek (npm, composer, mvn, dotnet, go,
+    cargo) sehingga bisa memakai jaringan. Untuk analisis read-only yang
+    sepenuhnya offline, pakai 'snipe-code audit'.
+
+ARGUMEN
+    PATH            Folder proyek (default: direktori saat ini)
+
+OPTIONS
+    --only <gate>   Jalankan hanya gate ini (harus berlaku di proyek)
+    --security      Tambahkan gate kerentanan dependency: npm audit,
+                    composer audit, dotnet list package --vulnerable
+    -h, --help      Bantuan perintah ini
+
+EXIT STATUS
+    0   semua gate yang berlaku lulus
+    1   ada gate yang gagal (nama gate dan perintahnya dicetak)
+    2   kesalahan pemakaian (opsi atau gate tidak dikenal)
+    3   tidak ada gate yang dijalankan (proyek tidak dikenali / tool tidak ada)
+
+CONTOH
+    snipe-code verify .
+    snipe-code verify ../proyek --only test
+    snipe-code verify . --security
 "#;

@@ -115,6 +115,47 @@ Exit code:
 
 Audit bersifat heuristik. Report mencantumkan detected context, rule groups, dan excluded paths. “No findings detected by evaluated rules” bukan jaminan proyek aman.
 
+### 4. Verifikasi proyek yang sudah ada (`verify`)
+
+Periksa apakah sebuah proyek benar-benar lulus gate kualitasnya:
+
+```bash
+snipe-code verify .                        # periksa semua gate yang berlaku
+snipe-code verify ../proyek --only test    # ulangi satu gate saja
+snipe-code verify . --security             # tambahkan gate kerentanan dependency
+```
+
+Gate diturunkan dari manifest proyek — bukan dari daftar stack yang di-generate tool ini — sehingga `verify` bekerja pada proyek mana pun yang dikenali:
+
+| Manifest                        | Gate yang dijalankan                                                   |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| `package.json`                  | `npm install`, lalu `npm run <script>` untuk `typecheck`, `lint`, `test`, `build` yang memang dideklarasikan |
+| `composer.json` + `artisan`     | `composer install --no-interaction --no-progress`, `php artisan test`   |
+| `composer.json` + `phpunit.xml` | `composer install --no-interaction --no-progress`, `php vendor/bin/phpunit` |
+| `go.mod`                        | `go mod download`, `go mod tidy`, `go vet ./...`, `go test ./...`, `go build ./...` |
+| `pom.xml`                       | `mvn test`, `mvn package -DskipTests`                                  |
+| `*.csproj` / `*.sln`            | `dotnet restore`, `dotnet test --no-restore`, `dotnet build --no-restore` |
+
+Urutan gate tetap: `install` → `lint` → `typecheck` → `test` → `build` (+ `security` bila diminta). Setiap gate melaporkan satu dari empat status:
+
+- `passed` — perintah selesai dengan exit 0
+- `failed` — perintah exit non-zero; nama gate dan perintahnya dicetak
+- `not-applicable` — proyek tidak mendeklarasikan apa pun untuk gate itu, jadi tidak ada perintah yang dijalankan
+- `unavailable` — tool-nya tidak terpasang di mesin ini; gate lain tetap lanjut
+
+Exit code:
+
+- `0`: semua gate yang berlaku lulus
+- `1`: ada gate yang gagal
+- `2`: usage error, misalnya `--only` menunjuk gate yang tidak berlaku atau opsi tidak dikenal
+- `3`: tidak ada gate yang dijalankan, misalnya proyek tidak dikenali atau semua tool tidak tersedia
+
+**`verify` vs `audit`.** `verify` menjalankan tool milik proyek (`npm`, `composer`, `mvn`, `dotnet`, `go`, `cargo`) sehingga **bisa memakai jaringan** — persis seperti CI proyek itu sendiri. Tool `snipe-code` tetap offline: ia tidak pernah memanggil jaringan, hanya men-spawn perintah yang sudah dideklarasikan proyek, dan setiap perintah dicetak sebelum dijalankan. Untuk analisis read-only yang sepenuhnya offline, pakai `snipe-code audit`.
+
+`--security` memakai scanner bawaan ekosistem: `npm audit`, `composer audit`, `dotnet list package --vulnerable`. Go dan Java melaporkan gate ini sebagai `not-applicable` beserta alasannya, karena `govulncheck` dan OWASP dependency-check bukan bagian dari toolchain bawaannya.
+
+Proyek dengan lebih dari satu bagian (misalnya `frontend/` dan `backend/`) diverifikasi per bagian, masing-masing di direktorinya sendiri. Proyek yang tidak dikenali dilaporkan `no gates found` dan keluar dengan status `3` tanpa menjalankan perintah apa pun. Batasan yang dikenal: deteksi memakai `audit::detect_scopes`, yang belum mengenali Python dan Ruby.
+
 ### Supported stack verification
 
 | Capability                     | Native verification (commands run by CI)                              |

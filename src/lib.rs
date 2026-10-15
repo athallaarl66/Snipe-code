@@ -8,3 +8,4 @@ pub mod generator;
 pub mod git;
 pub mod stack;
 pub mod template;
+pub mod verify;
