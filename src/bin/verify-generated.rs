@@ -1,8 +1,12 @@
+//! Generates a project for one stack and verifies it through the shared
+//! verification engine, so CI exercises the same code path users run.
+
 use snipe_code::generator::{GenerateConfig, generate};
+use snipe_code::verify::{self, Options};
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::path::Path;
+use std::process::ExitCode;
 
 fn main() -> ExitCode {
     match run() {
@@ -36,22 +40,18 @@ fn run() -> Result<(), String> {
         return Err("select --frontend or --backend".to_string());
     }
 
-    let workspace = env::temp_dir().join(format!(
-        "snipe-verify-{}-{}",
-        std::process::id(),
-        unique_suffix()
-    ));
-    fs::create_dir_all(&workspace).map_err(|e| e.to_string())?;
-    // Windows shells hand out the 8.3 short form of the temp path (`ATHALL~1`);
-    // Vite canonicalises it and then fails to load its own files, so run from the
-    // long form to keep local verification equal to CI.
-    let workspace = long_path(workspace);
-    let result = verify(&workspace, frontend, backend, database);
+    let workspace = verify::exec::temp_workspace("snipe-verify")?;
+    let result = generate_and_verify(&workspace, frontend, backend, database);
     let cleanup = fs::remove_dir_all(&workspace).map_err(|e| e.to_string());
     result.and(cleanup)
 }
 
-fn verify(workspace: &Path, frontend: &str, backend: &str, database: &str) -> Result<(), String> {
+fn generate_and_verify(
+    workspace: &Path,
+    frontend: &str,
+    backend: &str,
+    database: &str,
+) -> Result<(), String> {
     let config = GenerateConfig {
         project_name: "generated-app".to_string(),
         template_id: "none".to_string(),
@@ -62,100 +62,34 @@ fn verify(workspace: &Path, frontend: &str, backend: &str, database: &str) -> Re
     let repo = env::current_dir().map_err(|e| e.to_string())?;
     env::set_current_dir(workspace).map_err(|e| e.to_string())?;
     let generated = generate(&config, false).map_err(|e| e.to_string());
-    let result = generated.and_then(|_| {
-        if frontend != "none" {
-            run_stack_command(Path::new("generated-app/frontend"), frontend, true)?;
-        }
-        if backend != "none" {
-            run_stack_command(Path::new("generated-app/backend"), backend, false)?;
-        }
-        Ok(())
-    });
+    let result =
+        generated.and_then(|_| verify_generated(Path::new("generated-app"), frontend, backend));
     env::set_current_dir(repo).map_err(|e| e.to_string())?;
     result
 }
 
-fn run_stack_command(path: &Path, stack: &str, frontend: bool) -> Result<(), String> {
-    if frontend || stack == "nestjs" {
-        return run_npm_steps(path, stack);
-    }
-    let commands: &[(&str, &[&str])] = match stack {
-        "go-gin" => &[
-            ("go", &["mod", "download"]),
-            ("go", &["mod", "tidy"]),
-            ("go", &["test", "./..."]),
-            ("go", &["vet", "./..."]),
-            ("go", &["build", "./..."]),
-        ],
-        "spring-boot" => &[("mvn", &["test", "package"])],
-        "dotnet8" => &[
-            ("dotnet", &["restore"]),
-            ("dotnet", &["test", "--no-restore"]),
-            ("dotnet", &["build", "--no-restore"]),
-        ],
-        "laravel" => &[
-            (
-                "composer",
-                &["install", "--no-interaction", "--no-progress"],
-            ),
-            ("php", &["artisan", "test"]),
-        ],
-        other => return Err(format!("unsupported backend stack {other}")),
+/// Runs the generated project through the engine and keeps the requested stack
+/// in the failure message.
+fn verify_generated(root: &Path, frontend: &str, backend: &str) -> Result<(), String> {
+    let options = Options {
+        path: root.to_path_buf(),
+        only: None,
+        security: false,
     };
-    for (program, args) in commands {
-        run_command(program, args, path, stack)?;
+    let report = verify::run(root, &options, &verify::exec::run)?;
+    let stack = if backend == "none" { frontend } else { backend };
+    if report.parts.is_empty() {
+        return Err(format!(
+            "unsupported stack {stack}: no verification gates found in {}",
+            root.display()
+        ));
     }
-    Ok(())
-}
-
-/// Runs install plus every script the generated manifest declares, cheapest
-/// first, with the build last so a failure is attributed to the right phase.
-fn run_npm_steps(path: &Path, stack: &str) -> Result<(), String> {
-    let declared = snipe_code::generator::declared_scripts(path);
-    run_command("npm", &["install"], path, stack)?;
-    for script in ["typecheck", "lint", "test", "build"] {
-        if declared.iter().any(|name| name == script) {
-            run_command("npm", &["run", script], path, stack)?;
-        }
+    verify::print_report(&report);
+    match report.first_failure() {
+        Some((_, _, _, message)) => Err(format!("{stack}: {message}")),
+        None => match verify::exit_status(&report) {
+            0 => Ok(()),
+            status => Err(format!("{stack}: no gate executed ({status})")),
+        },
     }
-    Ok(())
-}
-
-fn run_command(program: &str, args: &[&str], path: &Path, stack: &str) -> Result<(), String> {
-    let status = command(program, args, path)
-        .status()
-        .map_err(|e| format!("{stack}: {program} unavailable: {e}"))?;
-    if !status.success() {
-        return Err(format!("{stack}: {program} {args:?} exited with {status}"));
-    }
-    Ok(())
-}
-fn command(program: &str, args: &[&str], path: &Path) -> Command {
-    let mut command = if cfg!(windows) && matches!(program, "npm" | "mvn" | "composer") {
-        let mut command = Command::new("cmd.exe");
-        command.args(["/C", program]);
-        command
-    } else {
-        Command::new(program)
-    };
-    command.args(args).current_dir(path);
-    command
-}
-
-/// The canonical path without the Windows `\\?\` prefix.
-fn long_path(path: PathBuf) -> PathBuf {
-    let Ok(canonical) = fs::canonicalize(&path) else {
-        return path;
-    };
-    match canonical.to_string_lossy().strip_prefix(r"\\?\") {
-        Some(stripped) => PathBuf::from(stripped),
-        None => canonical,
-    }
-}
-
-fn unique_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default()
 }
