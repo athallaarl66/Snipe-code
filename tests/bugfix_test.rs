@@ -90,6 +90,32 @@ fn test_non_container_backend_omits_backend_compose_service() {
     let _ = fs::remove_dir_all(dir);
 }
 
+/// Regression: npm 10's arborist crashes on the Nuxt 3 peer graph
+/// (`Cannot read properties of null (reading 'edgesOut')`), so the generated
+/// workflow must pin a Node line that ships npm 11+, and the Laravel job must
+/// match the PHP line the generated composer.json requires (`^8.2`).
+#[test]
+fn test_workflow_pins_npm11_node_and_supported_php() {
+    let dir = temp_project("workflow-toolchain");
+    cicd::generate_ci_cd(&dir.to_string_lossy(), "nuxtjs", "laravel").unwrap();
+    let content = fs::read_to_string(dir.join(".github/workflows/main.yml")).unwrap();
+    assert!(
+        content.contains("node-version: '24'"),
+        "must pin Node 24 (npm 11) for the generated frontend job:\n{}",
+        content
+    );
+    assert!(
+        !content.contains("node-version: '20'"),
+        "Node 20 ships npm 10, which cannot install the Nuxt 3 peer graph"
+    );
+    assert!(
+        content.contains("php-version: '8.2'"),
+        "Laravel job must use the PHP line composer.json requires:\n{}",
+        content
+    );
+    let _ = fs::remove_dir_all(dir);
+}
+
 fn temp_project(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("snipe-bf-{}-{}", name, std::process::id()));
     let _ = fs::remove_dir_all(&dir);
@@ -173,10 +199,16 @@ fn test_laravel_scaffold_uses_supported_framework_line() {
         .iter()
         .find(|file| file.path == "composer.json")
         .unwrap();
-    assert!(composer.content.contains("\"laravel/framework\": \"^12.0\""));
+    assert!(
+        composer
+            .content
+            .contains("\"laravel/framework\": \"^12.0\"")
+    );
     assert!(composer.content.contains("\"php\": \"^8.2\""));
     assert!(
-        !composer.content.contains("\"laravel/framework\": \"^11.0\""),
+        !composer
+            .content
+            .contains("\"laravel/framework\": \"^11.0\""),
         "Laravel 11 line is advisory-blocked for Composer"
     );
     assert!(
@@ -329,7 +361,12 @@ fn test_markdown_report_uses_real_system_date() {
 
     assert_eq!(value.len(), 10, "date must be YYYY-MM-DD, got {:?}", value);
     let non_digits: Vec<char> = value.chars().filter(|c| !c.is_ascii_digit()).collect();
-    assert_eq!(non_digits, vec!['-', '-'], "date must parse as YYYY-MM-DD, got {:?}", value);
+    assert_eq!(
+        non_digits,
+        vec!['-', '-'],
+        "date must parse as YYYY-MM-DD, got {:?}",
+        value
+    );
     assert!(
         value == before || value == after,
         "report date {value} must equal the shared helper output ({before} / {after})"
@@ -382,11 +419,20 @@ fn test_generated_files_stay_inside_project_tree() {
 
     for file in &result.files {
         let relative = std::path::Path::new(file);
-        assert!(!relative.is_absolute(), "generated path must be project-relative: {file}");
+        assert!(
+            !relative.is_absolute(),
+            "generated path must be project-relative: {file}"
+        );
         let has_parent = file.split('/').any(|part| part == "..");
-        assert!(!has_parent, "generated path must not escape the project tree: {file}");
+        assert!(
+            !has_parent,
+            "generated path must not escape the project tree: {file}"
+        );
         let joined = dest.join(file);
-        assert!(joined.starts_with(&dest), "generated path escapes the project tree: {file}");
+        assert!(
+            joined.starts_with(&dest),
+            "generated path escapes the project tree: {file}"
+        );
         assert!(joined.exists(), "reported file was not written: {file}");
     }
 }
