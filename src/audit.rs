@@ -829,4 +829,3 @@ fn generate_docx(
 
     Ok(())
 }
-

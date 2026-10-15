@@ -616,4 +616,3 @@ fn rss_date() -> String {
     let month = date::MONTHS[m as usize - 1];
     format!("{}, {:02} {} {:04} 00:00:00 GMT", dow, d, month, y)
 }
-
