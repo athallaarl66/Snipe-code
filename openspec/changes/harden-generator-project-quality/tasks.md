@@ -91,6 +91,6 @@
 - [x] 11.1 Run `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features`
 - [x] 11.2 Run complete frontend, backend, database, Docker, workflow, path-safety, audit, and exit-code verification with durable CI logs/artifact summaries
 - [x] 11.3 Generate representative full-stack projects and confirm clean install/build/test plus valid CI and Docker output for each supported capability
-- [ ] 11.4 Run one release rehearsal and verify archive contents, checksums, signature/provenance, and source revision from a clean checkout
+- [x] 11.4 Run one release rehearsal and verify archive contents, checksums, signature/provenance, and source revision from a clean checkout
 - [x] 11.5 Re-check README/PRD/technical documentation against passing evidence and remove or downgrade every unsupported claim
 - [x] 11.6 Update/archive superseded OpenSpec changes and sync this change’s delta specs into canonical specs without losing stricter requirements

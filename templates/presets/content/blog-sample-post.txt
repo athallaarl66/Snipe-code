@@ -1,0 +1,22 @@
+---
+title: "Hello World"
+date: "{}"
+tags: ["rust", "cli"]
+category: "tutorial"
+author: "SNIPE-CODE Team"
+---
+
+# Hello World
+
+Welcome to your new blog! This is a sample post to get you started.
+
+## Getting Started
+
+Edit this file or create new `.mdx` files in the `posts/` directory.
+
+## Features
+
+- Markdown/MDX support
+- Automatic RSS feed
+- Categories and tags
+- Responsive design

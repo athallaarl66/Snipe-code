@@ -5,12 +5,12 @@ use snipe_code::stack;
 
 #[test]
 fn test_frontend_stacks_count() {
-    assert_eq!(stack::FRONTEND_STACKS.len(), 5);
+    assert_eq!(stack::frontend_stacks().len(), 5);
 }
 
 #[test]
 fn test_backend_stacks_count() {
-    assert_eq!(stack::BACKEND_STACKS.len(), 6);
+    assert_eq!(stack::backend_stacks().len(), 6);
 }
 
 #[test]
@@ -21,15 +21,15 @@ fn test_database_stacks_count() {
 #[test]
 fn test_get_frontend_folders_nextjs() {
     let folders = stack::get_frontend_folders("nextjs").unwrap();
-    assert!(folders.contains(&"src/components/ui/"));
-    assert!(folders.contains(&"src/app/"));
+    assert!(folders.contains(&"src/components/ui/".to_string()));
+    assert!(folders.contains(&"src/app/".to_string()));
 }
 
 #[test]
 fn test_get_backend_folders_nestjs() {
     let folders = stack::get_backend_folders("nestjs").unwrap();
-    assert!(folders.contains(&"src/controllers/"));
-    assert!(folders.contains(&"src/services/"));
+    assert!(folders.contains(&"src/controllers/".to_string()));
+    assert!(folders.contains(&"src/services/".to_string()));
 }
 
 #[test]

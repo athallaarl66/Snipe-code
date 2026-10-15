@@ -1,0 +1,3 @@
+name=.NET 8
+init=
+install=dotnet restore

@@ -1,0 +1,24 @@
+{
+  "id": "company-profile",
+  "name": "Company Profile",
+  "description": "Professional company website with SEO",
+  "icon": "🏢",
+  "structure": {
+    "folders": [
+      "frontend/src/pages/home/",
+      "frontend/src/pages/about/",
+      "frontend/src/pages/services/",
+      "frontend/src/pages/contact/",
+      "frontend/src/pages/team/",
+      "frontend/src/components/layout/header/",
+      "frontend/src/components/layout/footer/"
+    ],
+    "files": [],
+    "rules": {
+      "require_backend": false,
+      "require_database": false,
+      "docker_compose": false,
+      "security_configs": true
+    }
+  }
+}

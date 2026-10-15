@@ -6,7 +6,7 @@ use crate::generator::{
     validate_project_name,
 };
 use crate::git;
-use crate::stack::{self, BACKEND_STACKS, DATABASE_STACKS, FRONTEND_STACKS};
+use crate::stack::{self, DATABASE_STACKS};
 use crate::template::TemplateRegistry;
 
 pub fn run(dry_run: bool) -> Result<(), String> {
@@ -34,7 +34,8 @@ pub fn run(dry_run: bool) -> Result<(), String> {
     let selected_template = &templates[template_idx];
 
     // 2. Select Frontend
-    let frontend_names: Vec<&str> = FRONTEND_STACKS.iter().map(|s| s.name).collect();
+    let frontend_stacks = stack::frontend_stacks();
+    let frontend_names: Vec<&str> = frontend_stacks.iter().map(|s| s.name.as_str()).collect();
     let frontend_idx = Select::new()
         .with_prompt("Pilih Frontend")
         .items(&frontend_names)
@@ -42,10 +43,11 @@ pub fn run(dry_run: bool) -> Result<(), String> {
         .interact()
         .expect("Failed to read frontend selection");
 
-    let selected_frontend = &FRONTEND_STACKS[frontend_idx];
+    let selected_frontend = &frontend_stacks[frontend_idx];
 
     // 3. Select Backend
-    let backend_names: Vec<&str> = BACKEND_STACKS.iter().map(|s| s.name).collect();
+    let backend_stacks = stack::backend_stacks();
+    let backend_names: Vec<&str> = backend_stacks.iter().map(|s| s.name.as_str()).collect();
     let backend_idx = Select::new()
         .with_prompt("Pilih Backend")
         .items(&backend_names)
@@ -53,10 +55,10 @@ pub fn run(dry_run: bool) -> Result<(), String> {
         .interact()
         .expect("Failed to read backend selection");
 
-    let selected_backend = &BACKEND_STACKS[backend_idx];
+    let selected_backend = &backend_stacks[backend_idx];
 
     // 4. Validate selection
-    if let Err(e) = stack::validate_selection(selected_frontend.id, selected_backend.id) {
+    if let Err(e) = stack::validate_selection(&selected_frontend.id, &selected_backend.id) {
         println!("Error: {}", e);
         return Err(e.to_string());
     }
@@ -136,6 +138,7 @@ pub fn run(dry_run: bool) -> Result<(), String> {
             println!("{}", success_style.apply_to("Project created!"));
             println!("  Folders: {}", result.folders.len());
             println!("  Files: {}", result.files.len());
+            println!("  Templates: {}", crate::template::source_label());
         }
         Err(e) => {
             println!("Error: {}", e);
@@ -155,8 +158,8 @@ pub fn run(dry_run: bool) -> Result<(), String> {
             if let Err(e) = git::add_and_commit(
                 &project_name,
                 &selected_template.name,
-                selected_frontend.name,
-                selected_backend.name,
+                &selected_frontend.name,
+                &selected_backend.name,
             ) {
                 println!("  Git commit warning: {}", e);
             } else {

@@ -119,15 +119,40 @@ Audit bersifat heuristik. Report mencantumkan detected context, rule groups, dan
 
 | Capability                     | Native verification (commands run by CI)                              |
 | ------------------------------ | --------------------------------------------------------------------- |
-| Next.js, React Vite, Vue, Nuxt | `npm install`, `npm run build`                                         |
-| NestJS                         | `npm install`, `npm run build`                                         |
-| Go Gin                         | `go mod download`, `go mod tidy`, `go test ./...`, `go build ./...`    |
+| Next.js, React Vite, Vue, Nuxt | `npm install`, `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` |
+| NestJS                         | `npm install`, `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` |
+| Go Gin                         | `go mod download`, `go mod tidy`, `go test ./...`, `go vet ./...`, `go build ./...` |
 | Spring Boot                    | `mvn test package`                                                     |
 | .NET 8                         | `dotnet restore`, `dotnet test --no-restore`, `dotnet build --no-restore` |
 | Laravel 12                     | `composer install --no-interaction --no-progress`, `php artisan test`   |
 | PostgreSQL/MySQL Compose       | `docker compose config`                                                |
 
 Generated projects use one safe project-name destination. Existing destination requires explicit overwrite. Generation stages files first; failed generation cleans staging. Git init/commit is best effort.
+
+### Template: struktur, override, dan cara mengubahnya
+
+Isi setiap stack dan preset hidup sebagai file nyata di `templates/`, lalu di-embed ke binary saat build — tool tetap offline dan tetap satu file executable:
+
+```text
+templates/
+├── frontends/<id>/          # nextjs, react-vite, vue, nuxtjs
+│   ├── manifest.txt         # name=..., init=..., install=...
+│   ├── folders.txt          # satu path folder per baris
+│   └── files/<path>         # isi file yang ikut digenerate
+├── backends/<id>/           # dotnet8, nestjs, go-gin, spring-boot, laravel
+│   └── (manifest.txt, folders.txt, files/<path>)
+└── presets/<id>/            # preset.json (folder + rules) dan content/<template_source>.txt
+```
+
+Menambah atau mengubah template **tidak perlu menyentuh Rust**: tambahkan atau edit file di `templates/`, lalu `cargo build`. Setiap file di `files/<path>` digenerate apa adanya ke path yang sama di dalam proyek hasil generate, `folders.txt` menentukan folder kosong yang dibuat, dan `manifest.txt` menentukan nama tampilan, perintah init, dan perintah install stack.
+
+**Override lokal tanpa recompile.** Set `SNIPE_CODE_TEMPLATES` ke direktori dengan layout seperti `templates/`:
+
+```bash
+SNIPE_CODE_TEMPLATES=/path/ke/templates-kerja snipe-code new
+```
+
+Resolusi bersifat per file: file yang disediakan direktori override menang atas default built-in, sedangkan file yang tidak disediakan tetap memakai default. Jadi override sebagian tetap sah — misalnya hanya `frontends/nextjs/files/package.json` untuk menaikkan versi dependency. Output `new` mencantumkan sumbernya, `Templates: local templates from <dir>` atau `Templates: built-in templates`, supaya jelas isi mana yang dipakai pada generate terakhir.
 
 ### Release verification
 

@@ -1,4 +1,73 @@
+use include_dir::{Dir, include_dir};
 use serde::Deserialize;
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+
+/// Environment variable naming a directory laid out like `templates/`. Files it
+/// provides replace the built-in default for the same relative path.
+pub const OVERRIDE_ENV: &str = "SNIPE_CODE_TEMPLATES";
+
+static TEMPLATES: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/templates");
+
+thread_local! {
+    /// Override directory that supplied a file to this generation, for reporting.
+    static LOCAL_ROOT: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+
+fn override_root() -> Option<PathBuf> {
+    let dir = std::env::var_os(OVERRIDE_ENV)?;
+    let path = PathBuf::from(dir);
+    path.is_dir().then_some(path)
+}
+
+fn remember(path: &Path) {
+    LOCAL_ROOT.with(|slot| *slot.borrow_mut() = Some(path.to_path_buf()));
+}
+
+/// Reads `templates/<rel>`: the override directory wins per file, the embedded
+/// default is the fallback for anything the override does not provide.
+pub fn read(rel: &str) -> Option<String> {
+    let local = override_root().and_then(|root| {
+        std::fs::read_to_string(root.join(rel))
+            .ok()
+            .map(|text| (root, text))
+    });
+    if let Some((root, text)) = local {
+        remember(&root);
+        return Some(text);
+    }
+    TEMPLATES
+        .get_file(rel)
+        .and_then(|file| file.contents_utf8())
+        .map(str::to_string)
+}
+
+/// Every file under `templates/<rel_dir>` as `templates/`-relative paths, sorted.
+pub fn list(rel_dir: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(dir) = TEMPLATES.get_dir(rel_dir) {
+        collect(dir, &mut out);
+    }
+    out.sort();
+    out
+}
+
+fn collect(dir: &Dir<'_>, out: &mut Vec<String>) {
+    for file in dir.files() {
+        out.push(file.path().to_string_lossy().replace('\\', "/"));
+    }
+    for sub in dir.dirs() {
+        collect(sub, out);
+    }
+}
+
+/// Whether built-in or local template content supplied the last generation.
+pub fn source_label() -> String {
+    match LOCAL_ROOT.with(|slot| slot.borrow().clone()) {
+        Some(root) => format!("local templates from {}", root.display()),
+        None => "built-in templates".to_string(),
+    }
+}
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Template {
@@ -41,115 +110,24 @@ pub struct GenerationRules {
 
 pub struct TemplateRegistry;
 
+/// Display order in the wizard; `content/` under `presets/` holds file bodies.
+const PRESET_IDS: &[&str] = &["none", "company-profile", "portfolio", "blog"];
+
 impl TemplateRegistry {
     pub fn load_all() -> Vec<Template> {
-        let mut templates = Vec::new();
-        for json in TEMPLATES {
-            let template: Template = serde_json::from_str(json).expect("Invalid template JSON");
-            templates.push(template);
-        }
-        templates
+        Self::ids().iter().filter_map(|id| Self::get(id)).collect()
     }
 
     pub fn get(id: &str) -> Option<Template> {
-        Self::load_all().into_iter().find(|t| t.id == id)
+        let rel = format!("presets/{id}/preset.json");
+        let raw = read(&rel)?;
+        Some(
+            serde_json::from_str(&raw)
+                .unwrap_or_else(|e| panic!("invalid template JSON at templates/{rel}: {e}")),
+        )
+    }
+
+    pub fn ids() -> &'static [&'static str] {
+        PRESET_IDS
     }
 }
-
-const TEMPLATES: &[&str] = &[
-    r#"{
-        "id": "none",
-        "name": "No Template — Clean Start",
-        "description": "Stack-only structure, no template files",
-        "icon": "📋",
-        "structure": {
-            "folders": [],
-            "files": [],
-            "rules": {}
-        }
-    }"#,
-    r#"{
-        "id": "company-profile",
-        "name": "Company Profile",
-        "description": "Professional company website with SEO",
-        "icon": "🏢",
-        "structure": {
-            "folders": [
-                "frontend/src/pages/home/",
-                "frontend/src/pages/about/",
-                "frontend/src/pages/services/",
-                "frontend/src/pages/contact/",
-                "frontend/src/pages/team/",
-                "frontend/src/components/layout/header/",
-                "frontend/src/components/layout/footer/"
-            ],
-            "files": [],
-            "rules": {
-                "require_backend": false,
-                "require_database": false,
-                "docker_compose": false,
-                "security_configs": true
-            }
-        }
-    }"#,
-    r#"{
-        "id": "portfolio",
-        "name": "Portfolio",
-        "description": "Personal portfolio with project showcase",
-        "icon": "💼",
-        "structure": {
-            "folders": [
-                "frontend/src/components/sections/hero/",
-                "frontend/src/components/sections/projects-grid/",
-                "frontend/src/components/sections/skills/",
-                "frontend/src/components/sections/experience/",
-                "frontend/src/components/sections/contact/",
-                "frontend/src/data/"
-            ],
-            "files": [
-                {
-                    "path": "frontend/src/data/projects.json",
-                    "template_source": "portfolio-projects"
-                }
-            ],
-            "rules": {
-                "require_backend": false,
-                "require_database": false,
-                "docker_compose": false,
-                "security_configs": true
-            }
-        }
-    }"#,
-    r#"{
-        "id": "blog",
-        "name": "Blog / Posts",
-        "description": "Content management with MDX support",
-        "icon": "📝",
-        "structure": {
-            "folders": [
-                "frontend/src/posts/",
-                "frontend/src/categories/",
-                "frontend/src/tags/",
-                "frontend/src/components/blog/post-card/",
-                "frontend/src/components/blog/post-content/",
-                "frontend/src/components/blog/author-page/"
-            ],
-            "files": [
-                {
-                    "path": "frontend/src/posts/hello-world.mdx",
-                    "template_source": "blog-sample-post"
-                },
-                {
-                    "path": "frontend/public/rss.xml",
-                    "template_source": "blog-rss-feed"
-                }
-            ],
-            "rules": {
-                "require_backend": false,
-                "require_database": false,
-                "docker_compose": false,
-                "security_configs": true
-            }
-        }
-    }"#,
-];
