@@ -20,7 +20,11 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new(label: &str) -> Self {
-        let guard = CWD_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        // A panicking test must not poison the lock for every later test.
+        let guard = CWD_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let original = std::env::current_dir().expect("read cwd");
         let n = SEQ.fetch_add(1, Ordering::SeqCst);
         let dir =

@@ -1,0 +1,28 @@
+{
+  "id": "portfolio",
+  "name": "Portfolio",
+  "description": "Personal portfolio with project showcase",
+  "icon": "💼",
+  "structure": {
+    "folders": [
+      "frontend/src/components/sections/hero/",
+      "frontend/src/components/sections/projects-grid/",
+      "frontend/src/components/sections/skills/",
+      "frontend/src/components/sections/experience/",
+      "frontend/src/components/sections/contact/",
+      "frontend/src/data/"
+    ],
+    "files": [
+      {
+        "path": "frontend/src/data/projects.json",
+        "template_source": "portfolio-projects"
+      }
+    ],
+    "rules": {
+      "require_backend": false,
+      "require_database": false,
+      "docker_compose": false,
+      "security_configs": true
+    }
+  }
+}

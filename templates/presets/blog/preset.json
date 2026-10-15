@@ -1,0 +1,32 @@
+{
+  "id": "blog",
+  "name": "Blog / Posts",
+  "description": "Content management with MDX support",
+  "icon": "📝",
+  "structure": {
+    "folders": [
+      "frontend/src/posts/",
+      "frontend/src/categories/",
+      "frontend/src/tags/",
+      "frontend/src/components/blog/post-card/",
+      "frontend/src/components/blog/post-content/",
+      "frontend/src/components/blog/author-page/"
+    ],
+    "files": [
+      {
+        "path": "frontend/src/posts/hello-world.mdx",
+        "template_source": "blog-sample-post"
+      },
+      {
+        "path": "frontend/public/rss.xml",
+        "template_source": "blog-rss-feed"
+      }
+    ],
+    "rules": {
+      "require_backend": false,
+      "require_database": false,
+      "docker_compose": false,
+      "security_configs": true
+    }
+  }
+}

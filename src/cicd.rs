@@ -6,13 +6,16 @@ pub fn generate_ci_cd(project_path: &str, frontend: &str, backend: &str) -> Resu
     let workflows_dir = path.join(".github/workflows");
     fs::create_dir_all(&workflows_dir).map_err(|e| e.to_string())?;
 
-    let content = workflow_content(frontend, backend);
+    let content = workflow_content(path, frontend, backend);
     fs::write(workflows_dir.join("main.yml"), content).map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
-fn workflow_content(frontend: &str, backend: &str) -> String {
+/// Workflows are written into the staged project, so the generated manifests
+/// are already on disk: every step below is gated on the script being declared,
+/// and the generated CI never invokes a script the project does not have.
+fn workflow_content(project_path: &Path, frontend: &str, backend: &str) -> String {
     let mut steps = vec![
         "name: CI/CD Pipeline".to_string(),
         "on:".to_string(),
@@ -40,7 +43,7 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
                 steps.push("        with:".to_string());
                 steps.push("          node-version: '24'".to_string());
                 steps.push("      - run: npm install".to_string());
-                steps.push("      - run: npm run build".to_string());
+                steps.extend(npm_script_steps(&project_path.join("frontend")));
             }
             _ => {}
         }
@@ -63,7 +66,7 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
                 steps.push("        with:".to_string());
                 steps.push("          node-version: '24'".to_string());
                 steps.push("      - run: npm install".to_string());
-                steps.push("      - run: npm run build".to_string());
+                steps.extend(npm_script_steps(&project_path.join("backend")));
             }
             "go-gin" => {
                 steps.push("      - uses: actions/setup-go@v5".to_string());
@@ -71,6 +74,7 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
                 steps.push("          go-version: '1.21'".to_string());
                 steps.push("      - run: go mod tidy".to_string());
                 steps.push("      - run: go test ./...".to_string());
+                steps.push("      - run: go vet ./...".to_string());
                 steps.push("      - run: go build ./...".to_string());
             }
             "spring-boot" => {
@@ -100,4 +104,15 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
     }
 
     steps.join("\n")
+}
+
+/// typecheck, then lint, then test, then build — cheapest first, build last so a
+/// failure is attributed to the phase that caused it.
+fn npm_script_steps(dir: &Path) -> Vec<String> {
+    let declared = crate::generator::declared_scripts(dir);
+    ["typecheck", "lint", "test", "build"]
+        .iter()
+        .filter(|script| declared.iter().any(|name| name == *script))
+        .map(|script| format!("      - run: npm run {script}"))
+        .collect()
 }

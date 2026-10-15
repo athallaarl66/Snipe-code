@@ -1,0 +1,11 @@
+{
+  "projects": [
+    {
+      "title": "Project Name",
+      "description": "Brief description of the project",
+      "image": "/images/project.png",
+      "tags": ["React", "TypeScript"],
+      "link": "https://github.com/..."
+    }
+  ]
+}

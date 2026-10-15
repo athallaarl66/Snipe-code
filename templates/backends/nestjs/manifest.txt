@@ -1,0 +1,3 @@
+name=NestJS
+init=
+install=npm install

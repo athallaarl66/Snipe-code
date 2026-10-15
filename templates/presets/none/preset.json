@@ -1,0 +1,11 @@
+{
+  "id": "none",
+  "name": "No Template — Clean Start",
+  "description": "Stack-only structure, no template files",
+  "icon": "📋",
+  "structure": {
+    "folders": [],
+    "files": [],
+    "rules": {}
+  }
+}

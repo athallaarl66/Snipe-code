@@ -31,7 +31,7 @@
 ## 6. Integration verification
 
 - [x] 6.1 Run the full local gate — `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets --all-features` — and confirm all three exit 0 — done: FMT 0 / CLIPPY 0 / TEST 0. `cargo fmt --check` was failing on the merged tree (4 files); formatted here, so the previous CI `Rust quality` failure is reproduced and fixed.
-- [ ] 6.2 Confirm the complete CI workflow concludes `success` with all 13 jobs green, and record the run URL as this change's evidence
+- [x] 6.2 Confirm the complete CI workflow concludes `success` with all 13 jobs green, and record the run URL as this change's evidence — done: run https://github.com/athallaarl66/Snipe-code/actions/runs/38673027154 (branch `fix/ci-npm11-node24`, sha `e6d278d1`) reports `jobs 13 success 13`; the post-merge `main` run https://github.com/athallaarl66/Snipe-code/actions/runs/38673279223 (sha `1a7bf750`, PR #8 merge) is also 13/13. Both `Frontend (nuxtjs)` and `Rust quality` are green, which was the point of the change.
 
 ## Blocker found while verifying 6.2
 

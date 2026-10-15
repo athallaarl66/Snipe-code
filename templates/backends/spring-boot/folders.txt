@@ -1,0 +1,8 @@
+src/main/java/com/example/backend/
+src/main/java/com/example/backend/controllers/
+src/main/java/com/example/backend/services/
+src/main/java/com/example/backend/repositories/
+src/main/java/com/example/backend/middleware/
+src/main/java/com/example/backend/models/
+src/main/resources/
+src/test/java/com/example/backend/

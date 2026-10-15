@@ -1,7 +1,7 @@
 use snipe_code::generator::{GenerateConfig, generate};
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 fn main() -> ExitCode {
@@ -42,6 +42,10 @@ fn run() -> Result<(), String> {
         unique_suffix()
     ));
     fs::create_dir_all(&workspace).map_err(|e| e.to_string())?;
+    // Windows shells hand out the 8.3 short form of the temp path (`ATHALL~1`);
+    // Vite canonicalises it and then fails to load its own files, so run from the
+    // long form to keep local verification equal to CI.
+    let workspace = long_path(workspace);
     let result = verify(&workspace, frontend, backend, database);
     let cleanup = fs::remove_dir_all(&workspace).map_err(|e| e.to_string());
     result.and(cleanup)
@@ -72,44 +76,60 @@ fn verify(workspace: &Path, frontend: &str, backend: &str, database: &str) -> Re
 }
 
 fn run_stack_command(path: &Path, stack: &str, frontend: bool) -> Result<(), String> {
-    let commands: &[(&str, &[&str])] = match (frontend, stack) {
-        (true, _) => &[("npm", &["install"]), ("npm", &["run", "build"])],
-        (false, "nestjs") => &[("npm", &["install"]), ("npm", &["run", "build"])],
-        (false, "go-gin") => &[
+    if frontend || stack == "nestjs" {
+        return run_npm_steps(path, stack);
+    }
+    let commands: &[(&str, &[&str])] = match stack {
+        "go-gin" => &[
             ("go", &["mod", "download"]),
             ("go", &["mod", "tidy"]),
             ("go", &["test", "./..."]),
+            ("go", &["vet", "./..."]),
             ("go", &["build", "./..."]),
         ],
-        (false, "spring-boot") => &[("mvn", &["test", "package"])],
-        (false, "dotnet8") => &[
+        "spring-boot" => &[("mvn", &["test", "package"])],
+        "dotnet8" => &[
             ("dotnet", &["restore"]),
             ("dotnet", &["test", "--no-restore"]),
             ("dotnet", &["build", "--no-restore"]),
         ],
-        (false, "laravel") => &[
+        "laravel" => &[
             (
                 "composer",
                 &["install", "--no-interaction", "--no-progress"],
             ),
             ("php", &["artisan", "test"]),
         ],
-        (false, _) => return Err(format!("unsupported backend stack {stack}")),
+        other => return Err(format!("unsupported backend stack {other}")),
     };
     for (program, args) in commands {
-        let status = command(program, args, path)
-            .status()
-            .map_err(|e| format!("{stack}: {program} unavailable: {e}"))?;
-        if !status.success() {
-            return Err(format!(
-                "{stack}: {program} {:?} exited with {status}",
-                args
-            ));
+        run_command(program, args, path, stack)?;
+    }
+    Ok(())
+}
+
+/// Runs install plus every script the generated manifest declares, cheapest
+/// first, with the build last so a failure is attributed to the right phase.
+fn run_npm_steps(path: &Path, stack: &str) -> Result<(), String> {
+    let declared = snipe_code::generator::declared_scripts(path);
+    run_command("npm", &["install"], path, stack)?;
+    for script in ["typecheck", "lint", "test", "build"] {
+        if declared.iter().any(|name| name == script) {
+            run_command("npm", &["run", script], path, stack)?;
         }
     }
     Ok(())
 }
 
+fn run_command(program: &str, args: &[&str], path: &Path, stack: &str) -> Result<(), String> {
+    let status = command(program, args, path)
+        .status()
+        .map_err(|e| format!("{stack}: {program} unavailable: {e}"))?;
+    if !status.success() {
+        return Err(format!("{stack}: {program} {args:?} exited with {status}"));
+    }
+    Ok(())
+}
 fn command(program: &str, args: &[&str], path: &Path) -> Command {
     let mut command = if cfg!(windows) && matches!(program, "npm" | "mvn" | "composer") {
         let mut command = Command::new("cmd.exe");
@@ -120,6 +140,17 @@ fn command(program: &str, args: &[&str], path: &Path) -> Command {
     };
     command.args(args).current_dir(path);
     command
+}
+
+/// The canonical path without the Windows `\\?\` prefix.
+fn long_path(path: PathBuf) -> PathBuf {
+    let Ok(canonical) = fs::canonicalize(&path) else {
+        return path;
+    };
+    match canonical.to_string_lossy().strip_prefix(r"\\?\") {
+        Some(stripped) => PathBuf::from(stripped),
+        None => canonical,
+    }
 }
 
 fn unique_suffix() -> u128 {

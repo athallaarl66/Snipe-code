@@ -106,8 +106,8 @@ fn test_nuxt_required_files() {
     assert!(pkg.contains("\"build\""));
 }
 
-/// Every generated frontend package must declare install-compatible scripts and
-/// a build entrypoint.
+/// Every generated frontend package must declare install-compatible scripts,
+/// a build entrypoint, and a runnable test entry point.
 #[test]
 fn test_all_frontends_declare_build_and_install() {
     for fe in ["nextjs", "react-vite", "vue", "nuxtjs"] {
@@ -125,6 +125,11 @@ fn test_all_frontends_declare_build_and_install() {
         assert!(
             scripts.get("dev").is_some(),
             "{} must declare a dev script",
+            fe
+        );
+        assert!(
+            scripts.get("test").is_some(),
+            "{} must declare a test script so generated CI can run it",
             fe
         );
     }

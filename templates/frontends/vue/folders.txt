@@ -1,0 +1,5 @@
+src/components/ui/
+src/components/layout/
+src/views/
+src/composables/
+src/lib/
