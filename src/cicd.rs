@@ -38,7 +38,7 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
             "nextjs" | "react-vite" | "vue" | "nuxtjs" => {
                 steps.push("      - uses: actions/setup-node@v4".to_string());
                 steps.push("        with:".to_string());
-                steps.push("          node-version: '20'".to_string());
+                steps.push("          node-version: '24'".to_string());
                 steps.push("      - run: npm install".to_string());
                 steps.push("      - run: npm run build".to_string());
             }
@@ -61,7 +61,7 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
             "nestjs" => {
                 steps.push("      - uses: actions/setup-node@v4".to_string());
                 steps.push("        with:".to_string());
-                steps.push("          node-version: '20'".to_string());
+                steps.push("          node-version: '24'".to_string());
                 steps.push("      - run: npm install".to_string());
                 steps.push("      - run: npm run build".to_string());
             }
@@ -91,7 +91,7 @@ fn workflow_content(frontend: &str, backend: &str) -> String {
             "laravel" => {
                 steps.push("      - uses: shivammathur/setup-php@v2".to_string());
                 steps.push("        with:".to_string());
-                steps.push("          php-version: '8.1'".to_string());
+                steps.push("          php-version: '8.2'".to_string());
                 steps.push("      - run: composer install".to_string());
                 steps.push("      - run: php artisan test".to_string());
             }

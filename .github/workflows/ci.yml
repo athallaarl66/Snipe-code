@@ -36,7 +36,7 @@ jobs:
           toolchain: 1.85.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
       - run: cargo run --bin verify-generated -- --frontend "${{ matrix.stack }}"
 
   generated-backend:
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: matrix.stack == 'nestjs'
         with:
-          node-version: 20
+          node-version: 24
       - uses: actions/setup-go@v5
         if: matrix.stack == 'go-gin'
         with:
