@@ -644,41 +644,49 @@ graph TB
 
 ### 11.1 Build Targets
 
-| Target | Platform | Command |
-|--------|----------|---------|
-| Windows x64 | Win | `cargo build --release --target x86_64-pc-windows-msvc` |
-| macOS ARM | Mac | `cargo build --release --target aarch64-apple-darwin` |
-| Linux x64 | Linux | `cargo build --release --target x86_64-unknown-linux-gnu` |
+The built list is data: `.github/release-targets.json`. The `package` matrix and the
+`publish` job's expected counts both read that file, so adding or removing a platform
+is one edit in one file (see 11.3).
+
+| Target | Runner | Platform | Archive |
+|--------|--------|----------|---------|
+| `x86_64-unknown-linux-gnu` | `ubuntu-latest` | Linux x86_64 | `.tar.gz` |
+| `x86_64-pc-windows-msvc` | `windows-latest` | Windows x86_64 | `.zip` |
+| `x86_64-apple-darwin` | `macos-13` | macOS x86_64 (Intel) | `.tar.gz` |
+| `aarch64-apple-darwin` | `macos-latest` | macOS arm64 (Apple silicon) | `.tar.gz` |
 
 ### 11.2 Distribution
 
 ```
 GitHub Releases/
-├── snipe-code-windows-x64.exe
-├── snipe-code-macos-arm64
-└── snipe-code-linux-x64
+├── snipe-code-<tag>-x86_64-unknown-linux-gnu.tar.gz
+├── snipe-code-<tag>-x86_64-pc-windows-msvc.zip
+├── snipe-code-<tag>-x86_64-apple-darwin.tar.gz
+├── snipe-code-<tag>-aarch64-apple-darwin.tar.gz
+├── <each archive>.sha256      # published checksum
+└── <each archive>.bundle      # keyless cosign signature bundle
 ```
+
+Each archive contains the executable, `LICENSE`, `README.md`, and `SOURCE_REVISION`.
+`install.sh` and `install.ps1` download an archive, verify the published checksum,
+verify the cosign bundle when `cosign` is installed, and only then place the binary.
+The crate is published to crates.io in the same run, so `cargo install snipe-code`
+installs the released version.
 
 ### 11.3 CI/CD for CLI itself
 
-```yaml
-release:
-  on:
-    push:
-      tags: ['v*']
-  jobs:
-    build:
-      strategy:
-        matrix:
-          target: [windows-x64, macos-arm64, linux-x64]
-      steps:
-        - uses: actions/checkout@v4
-        - uses: dtolnay/rust-toolchain@stable
-        - run: cargo build --release --target ${{ matrix.target }}
-        - uses: softprops/action-gh-release@v2
-          with:
-            files: target/${{ matrix.target }}/release/snipe-code*
-```
+The release workflow (`.github/workflows/release.yml`) has five jobs:
+
+| Job | Role |
+|-----|------|
+| `quality` | Asserts the tag equals the crate version, then runs `cargo fmt --check`, Clippy `-D warnings`, `cargo test`, and `cargo publish --dry-run` |
+| `targets` | Reads `.github/release-targets.json` and exposes the matrix and the target count |
+| `package` | One job per target: build, stage the archive (binary + `LICENSE` + `README.md` + `SOURCE_REVISION`), checksum it, upload it |
+| `publish` | Derives the expected archive and checksum counts from the target list, asserts every target has an archive, runs `sha256sum --check`, signs each archive with keyless cosign, and publishes the GitHub release |
+| `crate` | Runs after `quality`, so nothing is published while the gate is red; skips a version crates.io already holds, then runs `cargo publish` |
+
+`cargo publish` needs the `CARGO_REGISTRY_TOKEN` repository secret; without it the
+`crate` job fails loudly instead of skipping the publish silently.
 
 ---
 

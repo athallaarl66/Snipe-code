@@ -1,9 +1,15 @@
 [package]
 name = "snipe-code"
 version = "0.1.0"
+description = "Rust project scaffolding and heuristic security-audit CLI"
 default-run = "snipe-code"
 edition = "2024"
 rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/athallaarl66/Snipe-code"
+readme = "README.md"
+keywords = ["cli", "scaffolding", "security", "audit", "templates"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

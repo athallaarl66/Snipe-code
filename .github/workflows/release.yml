@@ -19,30 +19,42 @@ jobs:
         with:
           toolchain: 1.85.0
           components: rustfmt, clippy
+      - name: Tag must match the crate version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          test "$version" = "${GITHUB_REF_NAME#v}"
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-targets --all-features
+      - name: Packaging check
+        run: cargo publish --dry-run
+
+  targets:
+    name: Release targets
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+      count: ${{ steps.read.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the release target list
+        id: read
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "matrix=$(jq -c '[.targets[] | {target, runner, archive, binary}]' .github/release-targets.json)" >> "$GITHUB_OUTPUT"
+          echo "count=$(jq -r '.targets | length' .github/release-targets.json)" >> "$GITHUB_OUTPUT"
 
   package:
     name: Package (${{ matrix.target }})
-    needs: quality
+    needs: [quality, targets]
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-latest
-            archive: tar.gz
-            binary: snipe-code
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
-            archive: zip
-            binary: snipe-code.exe
-          - target: x86_64-apple-darwin
-            runner: macos-13
-            archive: tar.gz
-            binary: snipe-code
+        include: ${{ fromJSON(needs.targets.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -77,9 +89,11 @@ jobs:
             snipe-code-${{ github.ref_name }}-${{ matrix.target }}.*
 
   publish:
-    needs: package
+    name: Publish release
+    needs: [package, targets]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -90,10 +104,16 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          # The expected count and names come from the release target list, so
+          # adding or removing a platform needs no edit here.
+          expected=${{ needs.targets.outputs.count }}
           archives=(dist/*.tar.gz dist/*.zip)
           checksums=(dist/*.sha256)
-          (( ${#archives[@]} == 3 ))
-          (( ${#checksums[@]} == 3 ))
+          (( ${#archives[@]} == expected ))
+          (( ${#checksums[@]} == expected ))
+          while read -r target; do
+            ls dist | grep -q -- "$target" || { echo "no archive published for $target"; exit 1; }
+          done < <(jq -r '.targets[].target' .github/release-targets.json)
           sha256sum --check dist/*.sha256
       - uses: sigstore/cosign-installer@v3.8.1
       - name: Sign archives with keyless OIDC
@@ -102,6 +122,7 @@ jobs:
           COSIGN_YES: 'true'
         run: |
           set -euo pipefail
+          shopt -s nullglob
           for archive in dist/*.tar.gz dist/*.zip; do
             cosign sign-blob --yes --bundle "${archive}.bundle" "$archive"
             cosign verify-blob --bundle "${archive}.bundle" \
@@ -116,3 +137,38 @@ jobs:
             dist/*
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+  crate:
+    name: Publish crate
+    # Ordered after the quality gate, so nothing is published while it is red.
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85.0
+      - name: Publish the crate unless the registry already holds this version
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          registry="https://crates.io/api/v1/crates/snipe-code/$version"
+          if curl -sf -A 'snipe-code-release-workflow' "$registry" > /dev/null; then
+            echo "crates.io already holds snipe-code $version — nothing to publish"
+            exit 0
+          fi
+          if [[ -z "${CARGO_REGISTRY_TOKEN:-}" ]]; then
+            echo "CARGO_REGISTRY_TOKEN is not configured; the crate cannot be published" >&2
+            exit 1
+          fi
+          if ! cargo publish --token "$CARGO_REGISTRY_TOKEN"; then
+            if curl -sf -A 'snipe-code-release-workflow' "$registry" > /dev/null; then
+              echo "another run published snipe-code $version — treating as success"
+              exit 0
+            fi
+            echo "cargo publish failed and the registry does not hold snipe-code $version" >&2
+            exit 1
+          fi

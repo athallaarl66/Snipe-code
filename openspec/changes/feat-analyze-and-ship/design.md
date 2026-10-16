@@ -64,6 +64,10 @@ Language detection is a data table so adding a language is a row, not a branch.
 Traversal skips dependency and build-output directories (`node_modules`, `target`,
 `.git`, `dist`, `build`, `vendor`, `bin`, `obj`, `.next`, `.nuxt`, `out`,
 `coverage`) so reported size reflects the project rather than its dependencies.
+Two refinements the implementation needed: `bin` and `obj` only count as build
+output outside a source directory — `src/bin` is where a Rust crate keeps its
+additional binaries, and skipping it would hide real source — and the report states
+the walk's scope in its limits section, because hidden directories are skipped too.
 
 ### Report lines, not "lines of code"
 
