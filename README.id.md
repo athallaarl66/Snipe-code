@@ -45,6 +45,17 @@ cargo install snipe-code
 Memasang crate versi rilis dari crates.io ke `~/.cargo/bin`. Butuh Rust toolchain,
 jadi ini bukan jalur "no Rust toolchain" di atas.
 
+### Image container (Linux)
+
+```bash
+docker run --rm -v "$PWD:/work" -w /work ghcr.io/athallaarl66/snipe-code:latest audit . --export md
+```
+
+Image berisi binary Linux dari rilis di atas base distroless, jadi tidak ada shell,
+package manager, atau apa pun selain binary itu. Tag-nya mengikuti tag rilis, dan
+`latest` mengikuti rilis terbaru. Mount proyek yang mau diperiksa; container hanya
+melihat yang di-mount.
+
 ### Build dari source
 
 ```bash

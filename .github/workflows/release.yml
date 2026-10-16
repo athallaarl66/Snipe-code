@@ -172,3 +172,48 @@ jobs:
             echo "cargo publish failed and the registry does not hold snipe-code $version" >&2
             exit 1
           fi
+
+  image:
+    name: Publish container image
+    needs: [package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-x86_64-unknown-linux-gnu
+          path: dist
+      - name: Unpack the archive the release ships
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p context
+          tar -xzf "dist/snipe-code-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz" -C context
+          test -x context/snipe-code
+      - name: Build the image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${{ github.repository_owner }}/snipe-code"
+          docker build -f Dockerfile \
+            --build-arg "VERSION=${GITHUB_REF_NAME}" \
+            --build-arg "SOURCE_REVISION=$(cat context/SOURCE_REVISION)" \
+            -t "$image:${GITHUB_REF_NAME}" \
+            -t "$image:latest" \
+            context
+      - name: The image must run
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm "ghcr.io/${{ github.repository_owner }}/snipe-code:${GITHUB_REF_NAME}" --version
+      - name: Push the image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${{ github.repository_owner }}/snipe-code"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+          docker push "$image:${GITHUB_REF_NAME}"
+          docker push "$image:latest"

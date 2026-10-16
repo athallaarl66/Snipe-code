@@ -42,6 +42,17 @@ cargo install snipe-code
 Installs the released crate from crates.io into `~/.cargo/bin`. It needs a Rust
 toolchain, so it is not the no-toolchain path above.
 
+### Container image (Linux)
+
+```bash
+docker run --rm -v "$PWD:/work" -w /work ghcr.io/athallaarl66/snipe-code:latest audit . --export md
+```
+
+The image holds the released Linux binary on a distroless base, so there is no shell,
+no package manager, and nothing else in it. Its tags follow the release tags, and
+`latest` follows the newest release. Mount the project you want inspected; the
+container sees only what you mount.
+
 ### Build from source
 
 ```bash
