@@ -387,6 +387,10 @@ cargo test --all-targets --all-features
 - `docs/features/`: PRD and technical design.
 - `docs/production/`: task breakdowns per feature.
 
+## Author
+
+Athalla ([@athallaarl66](https://github.com/athallaarl66))
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

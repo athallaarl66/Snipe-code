@@ -81,7 +81,11 @@ jobs:
           fi
           test -f "${archive}.${{ matrix.archive }}"
           sha256sum "${archive}.${{ matrix.archive }}" > "${archive}.${{ matrix.archive }}.sha256"
-          ! find "$stage" -type f \( -name '*.d' -o -name '*.rlib' \)
+          leaked=$(find "$stage" -type f \( -name '*.d' -o -name '*.rlib' \))
+          if [ -n "$leaked" ]; then
+            echo "the archive stage must not carry build artifacts: $leaked" >&2
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target }}
