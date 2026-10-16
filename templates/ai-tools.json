@@ -1,0 +1,175 @@
+{
+  "tools": [
+    {
+      "id": "agents-md",
+      "name": "Cross-tool (AGENTS.md)",
+      "artifacts": [
+        {
+          "path": "AGENTS.md",
+          "format": "markdown",
+          "template": "shared",
+          "description": "Project instructions for AI coding agents."
+        }
+      ]
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "artifacts": [
+        {
+          "path": "CLAUDE.md",
+          "format": "markdown",
+          "template": "shared",
+          "description": "Project instructions for Claude Code."
+        },
+        {
+          "path": ".claude/skills/{name}/SKILL.md",
+          "format": "skill",
+          "template": "skill",
+          "name": "snipe-code",
+          "description": "Use when editing code in this project. Security rules and workflow."
+        },
+        {
+          "path": ".claude/commands/{name}.md",
+          "format": "command",
+          "template": "command",
+          "name": "snipe-code",
+          "description": "Run the project security audit and fix HIGH findings."
+        }
+      ]
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "artifacts": [
+        {
+          "path": ".cursor/rules/{name}.mdc",
+          "format": "mdc",
+          "template": "shared",
+          "name": "snipe-code",
+          "description": "SNIPE-CODE security and workflow rules for this project."
+        },
+        {
+          "path": ".cursorrules",
+          "format": "markdown",
+          "template": "shared",
+          "description": "Project instructions for Cursor."
+        }
+      ]
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "artifacts": [
+        {
+          "path": ".opencode/skills/{name}/SKILL.md",
+          "format": "skill",
+          "template": "skill",
+          "name": "snipe-code",
+          "description": "Use when editing code in this project. Security rules and workflow."
+        },
+        {
+          "path": ".opencode/commands/{name}.md",
+          "format": "command",
+          "template": "command",
+          "name": "snipe-code",
+          "description": "Run the project security audit and fix HIGH findings."
+        }
+      ]
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity",
+      "artifacts": [
+        {
+          "path": "GEMINI.md",
+          "format": "markdown",
+          "template": "shared",
+          "description": "Project instructions for Antigravity and Gemini CLI."
+        },
+        {
+          "path": ".agents/rules/{name}.md",
+          "format": "markdown",
+          "template": "shared",
+          "description": "SNIPE-CODE security and workflow rules for this project."
+        },
+        {
+          "path": ".agents/skills/{name}.md",
+          "format": "skill",
+          "template": "skill",
+          "name": "snipe-code",
+          "description": "Use when editing code in this project. Security rules and workflow."
+        },
+        {
+          "path": ".agents/workflows/{name}.md",
+          "format": "command",
+          "template": "command",
+          "name": "snipe-code",
+          "description": "Run the project security audit and fix HIGH findings."
+        }
+      ]
+    },
+    {
+      "id": "github-copilot",
+      "name": "GitHub Copilot",
+      "artifacts": [
+        {
+          "path": ".github/copilot-instructions.md",
+          "format": "markdown",
+          "template": "shared",
+          "description": "Project instructions for GitHub Copilot."
+        }
+      ]
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf",
+      "artifacts": [
+        {
+          "path": ".windsurf/rules/{name}.md",
+          "format": "markdown",
+          "template": "shared",
+          "name": "snipe-code",
+          "description": "SNIPE-CODE security and workflow rules for this project."
+        }
+      ]
+    },
+    {
+      "id": "hermes-agent",
+      "name": "Hermes Agent",
+      "artifacts": [
+        {
+          "path": ".hermes/skills/{name}/SKILL.md",
+          "format": "skill",
+          "template": "skill",
+          "name": "snipe-code",
+          "description": "Use when editing code in this project. Security rules and workflow."
+        }
+      ]
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "artifacts": [
+        {
+          "path": "AGENTS.md",
+          "format": "markdown",
+          "template": "shared",
+          "description": "Project instructions for Codex."
+        }
+      ]
+    },
+    {
+      "id": "gemini-cli",
+      "name": "Gemini CLI",
+      "artifacts": [
+        {
+          "path": "GEMINI.md",
+          "format": "markdown",
+          "template": "shared",
+          "description": "Project instructions for Gemini CLI."
+        }
+      ]
+    }
+  ]
+}

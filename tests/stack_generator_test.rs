@@ -59,6 +59,7 @@ fn test_generate_creates_folders() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let result = generator::generate(&config, false).unwrap();
     assert!(result.folders.iter().any(|f| f.contains("components/ui/")));
@@ -74,6 +75,7 @@ fn test_generate_creates_security_files() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let result = generator::generate(&config, false).unwrap();
     assert!(result.files.contains(&".env.example".to_string()));
@@ -94,6 +96,7 @@ fn test_generate_frontend_only_no_backend_folders() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let result = generator::generate(&config, false).unwrap();
     assert!(!result.folders.iter().any(|f| f.starts_with("backend/")));
@@ -108,6 +111,7 @@ fn test_generate_backend_only_no_frontend_folders() {
         frontend: "none".to_string(),
         backend: "nestjs".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let result = generator::generate(&config, false).unwrap();
     assert!(!result.folders.iter().any(|f| f.starts_with("frontend/")));
@@ -122,6 +126,7 @@ fn test_generate_empty_name_fails() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let result = generator::generate(&config, false);
     assert!(result.is_err());
@@ -150,6 +155,7 @@ fn test_generate_rejects_unsafe_names() {
             frontend: "none".to_string(),
             backend: "none".to_string(),
             database: "none".to_string(),
+            ai_tools: Vec::new(),
         };
         assert!(
             generator::generate(&config, false).is_err(),
@@ -169,6 +175,7 @@ fn test_generate_accepts_safe_names() {
             frontend: "none".to_string(),
             backend: "none".to_string(),
             database: "none".to_string(),
+            ai_tools: Vec::new(),
         };
         assert!(
             generator::generate(&config, false).is_ok(),

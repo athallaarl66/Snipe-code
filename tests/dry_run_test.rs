@@ -7,6 +7,7 @@ fn default_config() -> GenerateConfig {
         frontend: "nextjs".to_string(),
         backend: "nestjs".to_string(),
         database: "none".to_string(),
+        ai_tools: vec!["agents-md".to_string(), "cursor".to_string()],
     }
 }
 
@@ -59,6 +60,7 @@ fn test_dry_run_with_template_folders() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let output = generator::dry_run_preview(&config);
 
@@ -75,6 +77,7 @@ fn test_dry_run_no_backend_when_none() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let output = generator::dry_run_preview(&config);
 
@@ -89,6 +92,7 @@ fn test_dry_run_no_frontend_when_none() {
         frontend: "none".to_string(),
         backend: "nestjs".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let output = generator::dry_run_preview(&config);
 
@@ -103,6 +107,7 @@ fn test_dry_run_empty_name_returns_error() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let output = generator::dry_run_preview(&config);
 
@@ -125,6 +130,7 @@ fn test_dry_run_shows_frontend_files() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let output = generator::dry_run_preview(&config);
 
@@ -141,6 +147,7 @@ fn test_dry_run_shows_backend_files() {
         frontend: "none".to_string(),
         backend: "nestjs".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let output = generator::dry_run_preview(&config);
 

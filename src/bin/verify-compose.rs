@@ -28,6 +28,7 @@ fn run() -> Result<(), String> {
             frontend: "none".to_string(),
             backend: backend.clone(),
             database: database.clone(),
+            ai_tools: Vec::new(),
         };
         let generated = generate(&config, false).map_err(|e| e.to_string());
         let status = generated.and_then(|_| {
