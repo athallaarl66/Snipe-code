@@ -294,3 +294,23 @@ fn test_release_publishes_an_image_built_from_the_linux_archive() {
         "the image must run the tool itself:\n{dockerfile}"
     );
 }
+
+#[test]
+fn test_no_workflow_step_ends_with_a_negated_command() {
+    for file in [".github/workflows/release.yml", ".github/workflows/ci.yml"] {
+        let workflow = repo_file(file);
+        for line in workflow.lines().map(str::trim) {
+            assert!(
+                !line.starts_with("! "),
+                "{file} ends a step with a negated command, whose exit status inverts the \
+                 step result: {line}"
+            );
+        }
+    }
+
+    let workflow = repo_file(".github/workflows/release.yml");
+    assert!(
+        workflow.contains("must not carry build artifacts"),
+        "the package step must fail loudly when the archive stage carries build artifacts"
+    );
+}
