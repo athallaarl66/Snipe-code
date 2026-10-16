@@ -251,36 +251,77 @@ atau `Templates: built-in templates`.
 ## AI agent tools
 
 Proyek hasil generate bisa membawa artifact instruksi untuk tool AI yang dipakai,
-masing-masing di path yang tool itu baca:
+masing-masing di path yang tool itu baca. Ada tiga jenis file, dan cara tiap jenis sampai
+ke agen berbeda.
 
-| Tool | Artifact | Command |
+| Jenis | File | Kapan jalan |
 | --- | --- | --- |
-| Cross-tool (AGENTS.md) | `AGENTS.md` | none |
-| Claude Code | `CLAUDE.md`, `.claude/skills/snipe-code/SKILL.md` | `.claude/commands/snipe-code.md` |
-| Cursor | `.cursor/rules/snipe-code.mdc`, `.cursorrules` | none |
-| OpenCode | `.opencode/skills/snipe-code/SKILL.md` | `.opencode/commands/snipe-code.md` |
-| Antigravity | `GEMINI.md`, `.agents/rules/snipe-code.md`, `.agents/skills/snipe-code.md` | `.agents/workflows/snipe-code.md` |
-| GitHub Copilot | `.github/copilot-instructions.md` | none |
-| Windsurf | `.windsurf/rules/snipe-code.md` | none |
-| Hermes Agent | `.hermes/skills/snipe-code/SKILL.md` | none |
-| Codex | `AGENTS.md` | none |
-| Gemini CLI | `GEMINI.md` | none |
+| Rules | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, `.cursor/rules/snipe-code.mdc`, `.windsurf/rules/snipe-code.md`, `.github/copilot-instructions.md`, `.agents/rules/antigravity.md` | dibaca tool di awal sesi, tidak perlu diketik apa pun |
+| Skill | `.claude/skills/snipe-code/SKILL.md`, `.opencode/skills/snipe-code/SKILL.md`, `.hermes/skills/snipe-code/SKILL.md`, `.agents/skills/snipe-code.md` | muncul di daftar skill tool, dan agen memuatnya saat deskripsinya cocok dengan pekerjaan |
+| Command | `.claude/commands/snipe-code.md`, `.opencode/commands/snipe-code.md`, `.agents/workflows/snipe-code.md` | kamu ketik `/snipe-code` di tool itu |
+
+### Isi rules dan skill
+
+Keduanya membawa panduan yang sama: baca `.ai-workspace/rules.md` sebelum mengubah kode,
+jaga perubahan tetap sebatas permintaan, jalankan perintah build dan test proyek sebelum
+mengklaim perubahan bekerja, dan jalankan ulang `snipe-code audit . --export md` kalau
+perubahan menyentuh input handling, secret, atau query. Body-nya identik untuk semua
+tool; yang berbeda cuma frontmatter, karena tiap format mendeklarasikan metadatanya
+dengan caranya sendiri. `skill` memakai `name` dan `description`, rule `mdc` memakai
+`globs` dan `alwaysApply`, `command` memakai `description`.
+
+Command `/snipe-code` adalah audit yang sama, dijalankan manual: menjalankan
+`snipe-code audit . --export md`, memperbaiki setiap finding HIGH, menjalankan perintah
+test proyek, lalu mengulang auditnya. Ini satu-satunya command yang didapat proyek hasil
+generate, dan tidak menerima argumen: `analyze`, `verify`, dan `new` tidak punya padanan
+command.
+
+`snipe-code` harus ada di `PATH` supaya langkah audit di skill dan command bisa jalan.
+
+### Tool mana dapat apa
+
+| Tool | File | Cara pakai |
+| --- | --- | --- |
+| Cross-tool (AGENTS.md) | `AGENTS.md` | dibaca agen apa pun yang mengikuti konvensi AGENTS.md |
+| Claude Code | `CLAUDE.md`, `.claude/skills/snipe-code/SKILL.md`, `.claude/commands/snipe-code.md` | skill-nya memuat sendiri; `/snipe-code` memulai audit |
+| Cursor | `.cursor/rules/snipe-code.mdc`, `.cursorrules` | menempel di setiap edit, karena rule-nya menyetel `alwaysApply: true` |
+| OpenCode | `.opencode/skills/snipe-code/SKILL.md`, `.opencode/commands/snipe-code.md` | skill-nya memuat sendiri; `/snipe-code` memulai audit |
+| Antigravity | `GEMINI.md`, `.agents/rules/antigravity.md`, `.agents/skills/snipe-code.md`, `.agents/workflows/snipe-code.md` | rule dan skill-nya memuat sendiri; workflow-nya memulai audit |
+| GitHub Copilot | `.github/copilot-instructions.md` | dibaca sebagai instruksi repositori |
+| Windsurf | `.windsurf/rules/snipe-code.md` | dibaca sebagai rule proyek |
+| Hermes Agent | `.hermes/skills/snipe-code/SKILL.md` | skill-nya memuat sendiri |
+| Codex | `AGENTS.md` | file yang sama dengan entri cross-tool |
+| Gemini CLI | `GEMINI.md` | file yang sama dengan entri Antigravity |
+
+Codex dan Gemini CLI menunjuk file yang sudah ditulis entri lain. Kalau keduanya dipilih,
+file-nya ditulis sekali dan overlap-nya dilaporkan, jadi outputnya berbunyi `AGENTS.md:
+kept agents-md, skipped codex`.
+
+### Cara generate
+
+```bash
+snipe-code                                     # wizard langkah 6, multi-select, opsional
+snipe-code new --ai-tools cursor,claude-code   # lewati prompt pemilihan
+snipe-code new --ai-tools none --name demo     # tanpa artifact agen
+snipe-code new --dry-run                       # tampilkan struktur, tidak menulis file
+```
+
+Semua path relatif terhadap root proyek, dan tidak ada konfigurasi agen yang masuk ke
+home directory.
+
+`.ai-workspace/rules.md` dan `.ai-workspace/rules.mdc` selalu ditulis, dipilih atau tidak
+dipilih tool agen. Keduanya membawa panduan yang sama dengan yang dipakai artifact per
+tool, jadi tool tanpa konvensi khusus tetap menemukan rules di satu tempat yang jelas.
 
 Daftar tool, path, dan formatnya ada di `templates/ai-tools.json` (format:
 `markdown`, `mdc`, `skill`, `command`). Menambah tool berarti menambah entri registry,
-bukan mengubah kode. Format yang tidak dikenal menghasilkan error, bukan artifact
-yang dilewati diam-diam.
+bukan mengubah kode. Format yang tidak dikenal menghasilkan error, bukan artifact yang
+dilewati diam-diam.
 
 - `--ai-tools <ids|none>` melewati prompt pemilihan; `none` berarti tanpa artifact agen.
 - `--json` menaruh hasil generate di stdout, progress ke stderr.
 - Path yang diklaim lebih dari satu tool, misal `AGENTS.md` oleh cross-tool dan Codex,
   ditulis sekali dan overlap-nya dilaporkan di output.
-- `.ai-workspace/rules.md` dan `.ai-workspace/rules.mdc` selalu ditulis, dirender dari
-  sumber yang sama dengan artifact per tool.
-
-Direktori skill bersifat project-local (`<proyek>/.claude/skills/`,
-`<proyek>/.opencode/skills/`, `<proyek>/.hermes/skills/`). `snipe-code` tidak menulis
-konfigurasi global di home directory.
 
 ## Platform yang didukung
 

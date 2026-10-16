@@ -248,36 +248,76 @@ version. The `new` output names the source it used, `Templates: local templates 
 ## AI agent tools
 
 A generated project can carry instruction artifacts for the AI tools you use, each at
-the path that tool reads:
+the path that tool reads. The files fall into three groups, and how each group reaches
+the agent differs.
 
-| Tool | Artifact | Command |
+| Job | Files | When it runs |
 | --- | --- | --- |
-| Cross-tool (AGENTS.md) | `AGENTS.md` | none |
-| Claude Code | `CLAUDE.md`, `.claude/skills/snipe-code/SKILL.md` | `.claude/commands/snipe-code.md` |
-| Cursor | `.cursor/rules/snipe-code.mdc`, `.cursorrules` | none |
-| OpenCode | `.opencode/skills/snipe-code/SKILL.md` | `.opencode/commands/snipe-code.md` |
-| Antigravity | `GEMINI.md`, `.agents/rules/snipe-code.md`, `.agents/skills/snipe-code.md` | `.agents/workflows/snipe-code.md` |
-| GitHub Copilot | `.github/copilot-instructions.md` | none |
-| Windsurf | `.windsurf/rules/snipe-code.md` | none |
-| Hermes Agent | `.hermes/skills/snipe-code/SKILL.md` | none |
-| Codex | `AGENTS.md` | none |
-| Gemini CLI | `GEMINI.md` | none |
+| Rules | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, `.cursor/rules/snipe-code.mdc`, `.windsurf/rules/snipe-code.md`, `.github/copilot-instructions.md`, `.agents/rules/antigravity.md` | the tool reads the file at the start of a session, nothing to type |
+| Skill | `.claude/skills/snipe-code/SKILL.md`, `.opencode/skills/snipe-code/SKILL.md`, `.hermes/skills/snipe-code/SKILL.md`, `.agents/skills/snipe-code.md` | it shows up in the tool's skill list, and the agent loads it when its description matches the work |
+| Command | `.claude/commands/snipe-code.md`, `.opencode/commands/snipe-code.md`, `.agents/workflows/snipe-code.md` | you type `/snipe-code` in the tool |
+
+### What the rules and the skill tell the agent
+
+Both carry the same guidance: read `.ai-workspace/rules.md` before editing code, keep the
+change scoped to the request, run the project's build and test command before claiming
+the change works, and re-run `snipe-code audit . --export md` when the change touches
+input handling, secrets, or queries. The body is identical for every tool; only the
+frontmatter differs, because each format declares its metadata its own way. A `skill`
+gets `name` and `description`, an `mdc` rule gets `globs` and `alwaysApply`, a `command`
+gets `description`.
+
+The `/snipe-code` command is that audit run, started by hand: it runs
+`snipe-code audit . --export md`, fixes every HIGH finding, runs the project's test
+command, then re-runs the audit. It is the only command a generated project gets, and it
+takes no arguments: `analyze`, `verify`, and `new` have no command counterpart.
+
+`snipe-code` needs to be on `PATH` for the audit step in the skill and in the command to
+work.
+
+### Which tool gets what
+
+| Tool | Files | How you use it |
+| --- | --- | --- |
+| Cross-tool (AGENTS.md) | `AGENTS.md` | read by any agent that follows the AGENTS.md convention |
+| Claude Code | `CLAUDE.md`, `.claude/skills/snipe-code/SKILL.md`, `.claude/commands/snipe-code.md` | the skill loads itself; `/snipe-code` starts the audit |
+| Cursor | `.cursor/rules/snipe-code.mdc`, `.cursorrules` | attached to every edit, because the rule sets `alwaysApply: true` |
+| OpenCode | `.opencode/skills/snipe-code/SKILL.md`, `.opencode/commands/snipe-code.md` | the skill loads itself; `/snipe-code` starts the audit |
+| Antigravity | `GEMINI.md`, `.agents/rules/antigravity.md`, `.agents/skills/snipe-code.md`, `.agents/workflows/snipe-code.md` | the rule and the skill load themselves; the workflow starts the audit |
+| GitHub Copilot | `.github/copilot-instructions.md` | read as repository instructions |
+| Windsurf | `.windsurf/rules/snipe-code.md` | read as a project rule |
+| Hermes Agent | `.hermes/skills/snipe-code/SKILL.md` | the skill loads itself |
+| Codex | `AGENTS.md` | same file the cross-tool entry writes |
+| Gemini CLI | `GEMINI.md` | same file the Antigravity entry writes |
+
+Codex and Gemini CLI point at files another entry already writes. Selecting both writes
+the file once and reports the overlap, so the output reads `AGENTS.md: kept agents-md,
+skipped codex`.
+
+### Generating them
+
+```bash
+snipe-code                                     # wizard step 6, multi-select, optional
+snipe-code new --ai-tools cursor,claude-code   # skip the selection prompt
+snipe-code new --ai-tools none --name demo     # no agent artifacts at all
+snipe-code new --dry-run                       # print the structure, write nothing
+```
+
+Every path is relative to the project root, and no agent configuration lands in your home
+directory.
+
+`.ai-workspace/rules.md` and `.ai-workspace/rules.mdc` are always written, whether or not
+an agent tool was selected. They carry the guidance the per-tool artifacts render from,
+so a tool with no dedicated convention still finds the rules in one known place.
 
 The tool list, paths, and formats live in `templates/ai-tools.json` (formats:
 `markdown`, `mdc`, `skill`, `command`). Adding a tool is a registry entry, not a code
-change. An unknown format produces an error instead of an artifact that is quietly
-skipped.
+change. An unknown format produces an error instead of being dropped.
 
 - `--ai-tools <ids|none>` skips the selection prompt; `none` means no agent artifacts.
 - `--json` puts the generate result on stdout and progress on stderr.
 - A path claimed by more than one tool, such as `AGENTS.md` by the cross-tool entry and
   Codex, is written once and the overlap is reported.
-- `.ai-workspace/rules.md` and `.ai-workspace/rules.mdc` are always written and render
-  from the same source as the per-tool artifacts.
-
-Skill directories are project-local (`<project>/.claude/skills/`,
-`<project>/.opencode/skills/`, `<project>/.hermes/skills/`). `snipe-code` writes no
-global configuration into your home directory.
 
 ## Supported platforms
 
