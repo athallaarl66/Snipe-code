@@ -152,7 +152,11 @@ fn test_installer_installs_a_verified_archive() {
 fn test_installer_aborts_on_a_checksum_mismatch() {
     let fixture = Fixture::new("checksum");
     let assets = fixture.stage_release();
-    let archive = assets.join("snipe-code-v0.1.0-x86_64-unknown-linux-gnu.tar.gz");
+    // install.sh reads <base>/<version>/<asset>.sha256, so the tampered checksum has to
+    // land in the version directory, not beside the archive name the test knows.
+    let archive = assets
+        .join("v0.1.0")
+        .join("snipe-code-v0.1.0-x86_64-unknown-linux-gnu.tar.gz");
     fs::write(
         archive.with_file_name(format!(
             "{}.sha256",
