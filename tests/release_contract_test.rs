@@ -255,3 +255,42 @@ fn test_installers_never_pipe_anything_into_a_shell() {
         }
     }
 }
+
+// --- the container image carries the released binary ----------------------
+
+#[test]
+fn test_release_publishes_an_image_built_from_the_linux_archive() {
+    let workflow = repo_file(".github/workflows/release.yml");
+    let image_job = workflow
+        .split("  image:")
+        .nth(1)
+        .expect("the release workflow must have an image job");
+
+    for expected in [
+        "release-x86_64-unknown-linux-gnu",
+        "packages: write",
+        "docker build",
+        "docker push",
+        "ghcr.io/",
+        "docker login ghcr.io",
+    ] {
+        assert!(
+            image_job.contains(expected),
+            "the image job must {expected}:\n{image_job}"
+        );
+    }
+    assert!(
+        image_job.contains("docker run --rm"),
+        "the image must be run before it is pushed, so a broken image never publishes:\n{image_job}"
+    );
+
+    let dockerfile = repo_file("Dockerfile");
+    assert!(
+        dockerfile.contains("COPY snipe-code /usr/local/bin/snipe-code"),
+        "the image must carry the released binary:\n{dockerfile}"
+    );
+    assert!(
+        dockerfile.contains("ENTRYPOINT [\"snipe-code\"]"),
+        "the image must run the tool itself:\n{dockerfile}"
+    );
+}
