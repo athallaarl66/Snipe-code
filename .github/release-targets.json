@@ -1,0 +1,32 @@
+{
+  "targets": [
+    {
+      "target": "x86_64-unknown-linux-gnu",
+      "runner": "ubuntu-latest",
+      "archive": "tar.gz",
+      "binary": "snipe-code",
+      "platform": "Linux x86_64"
+    },
+    {
+      "target": "x86_64-pc-windows-msvc",
+      "runner": "windows-latest",
+      "archive": "zip",
+      "binary": "snipe-code.exe",
+      "platform": "Windows x86_64"
+    },
+    {
+      "target": "x86_64-apple-darwin",
+      "runner": "macos-13",
+      "archive": "tar.gz",
+      "binary": "snipe-code",
+      "platform": "macOS x86_64 (Intel)"
+    },
+    {
+      "target": "aarch64-apple-darwin",
+      "runner": "macos-latest",
+      "archive": "tar.gz",
+      "binary": "snipe-code",
+      "platform": "macOS arm64 (Apple silicon)"
+    }
+  ]
+}

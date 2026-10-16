@@ -3,3 +3,4 @@ channel = "1.85.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"
 exact = true
+

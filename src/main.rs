@@ -1,3 +1,6 @@
+use std::path::Path;
+
+use snipe_code::analyze;
 use snipe_code::audit;
 use snipe_code::commands::new;
 use snipe_code::verify;
@@ -16,6 +19,7 @@ fn main() {
         Some("faq") => print_faq(),
         Some("version") | Some("--version") => println!("{}", env!("CARGO_PKG_VERSION")),
         Some("new") => run_new_cmd(&args),
+        Some("analyze") => run_analyze_cmd(&args),
         Some("audit") => run_audit_cmd(&args),
         Some("verify") => run_verify_cmd(&args),
         // Backward compatible: snipe-code --dry-run
@@ -80,6 +84,7 @@ fn run_new_cmd(args: &[String]) {
 fn run_audit_cmd(args: &[String]) {
     let mut path = ".".to_string();
     let mut export_opt: Option<String> = None;
+    let mut json = false;
 
     let mut i = 2;
     while i < args.len() {
@@ -91,6 +96,9 @@ fn run_audit_cmd(args: &[String]) {
                 eprintln!("Usage error: --export membutuhkan nilai.");
                 std::process::exit(2);
             }
+        } else if args[i] == "--json" {
+            json = true;
+            i += 1;
         } else {
             path = args[i].clone();
             i += 1;
@@ -115,9 +123,24 @@ fn run_audit_cmd(args: &[String]) {
 
     match audit::run_audit_report(&path, &export_format) {
         Ok(result) => {
-            println!("Audit complete! Exported files:");
-            for file in &result.exported_files {
-                println!("  - {}/{}", path, file);
+            if json {
+                // stdout stays parseable; every human-facing line goes to stderr.
+                match audit::render_json(&result) {
+                    Ok(text) => println!("{}", text),
+                    Err(error) => {
+                        eprintln!("Audit failed: {}", error);
+                        std::process::exit(3);
+                    }
+                }
+                eprintln!("Audit complete! Exported files:");
+                for file in &result.exported_files {
+                    eprintln!("  - {}/{}", path, file);
+                }
+            } else {
+                println!("Audit complete! Exported files:");
+                for file in &result.exported_files {
+                    println!("  - {}/{}", path, file);
+                }
             }
             if result.policy_failed {
                 eprintln!("Audit policy failed: {} HIGH finding(s)", result.high);
@@ -136,6 +159,46 @@ fn run_audit_cmd(args: &[String]) {
             };
             std::process::exit(code);
         }
+    }
+}
+
+fn run_analyze_cmd(args: &[String]) {
+    let rest: Vec<String> = args.iter().skip(2).cloned().collect();
+    if rest.iter().any(|token| token == "--help" || token == "-h") {
+        println!("{}", ANALYZE_HELP);
+        return;
+    }
+
+    let mut path = ".".to_string();
+    let mut json = false;
+    for token in &rest {
+        match token.as_str() {
+            "--json" => json = true,
+            other if other.starts_with('-') => {
+                eprintln!("Usage error: opsi tidak dikenal: {}", other);
+                std::process::exit(2);
+            }
+            other => path = other.to_string(),
+        }
+    }
+
+    let report = match analyze::analyze(Path::new(&path)) {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("analyze: {}", error);
+            std::process::exit(3);
+        }
+    };
+    if json {
+        match analyze::render_json(&report) {
+            Ok(text) => println!("{}", text),
+            Err(error) => {
+                eprintln!("analyze: {}", error);
+                std::process::exit(3);
+            }
+        }
+    } else {
+        print!("{}", analyze::render_human(&report));
     }
 }
 
@@ -178,6 +241,7 @@ fn print_faq() {
 
 fn print_command_help(cmd: &str) {
     match cmd {
+        "analyze" => println!("{}", ANALYZE_HELP),
         "audit" => println!("{}", AUDIT_HELP),
         "verify" => println!("{}", VERIFY_HELP),
         "new" => println!("{}", NEW_HELP),
@@ -197,6 +261,8 @@ USAGE
 COMMANDS
     new        Jalankan wizard interaktif untuk generate proyek baru
                (default jika tidak ada command)
+    analyze    Laporkan isi proyek: bahasa dan ukurannya, struktur, entry point,
+               dan dependency yang dideklarasikan (read-only, offline)
     audit      Scan folder proyek dan export laporan security audit
     verify     Periksa gate kualitas proyek yang sudah ada
     help       Tampilkan bantuan ini (alias: --help, -h)
@@ -208,7 +274,8 @@ OPTIONS
     --ai-tools <l> (new) AI agent tools yang di-generate, id dipisah koma
                    (mis. cursor,claude-code) atau 'none' untuk tanpa artifact
     --name <n>     (new) Nama proyek; melewati prompt nama
-    --json         (new) Hasil generate sebagai JSON di stdout; progress ke stderr
+    --json         Hasil terstruktur (JSON) di stdout untuk new, analyze, dan
+                   audit; progress serta pesan lain ke stderr
     --export <f>   Format export audit: md, pdf, docx (koma, contoh: pdf,docx)
     --only <g>     (verify) Batasi ke satu gate: install, lint, typecheck, test,
                    build, security
@@ -223,6 +290,8 @@ CONTOH
                                         Generate dengan artifact Cursor + Claude Code
     snipe-code new --ai-tools none --name demo --json
                                         Tanpa artifact agen, hasil JSON di stdout
+    snipe-code analyze .                Laporkan isi folder ini
+    snipe-code analyze . --json         Laporan yang sama sebagai JSON di stdout
     snipe-code audit .                  Scan folder ini (pilih format interaktif)
     snipe-code audit . --export pdf,docx
                                         Scan dan export PDF + DOCX langsung
@@ -232,6 +301,7 @@ CONTOH
 
 DETAIL PER COMMAND
     snipe-code help new
+    snipe-code help analyze
     snipe-code help audit
     snipe-code help verify
 "#;
@@ -299,7 +369,7 @@ CONTOH
 const AUDIT_HELP: &str = r#"snipe-code audit — Security audit folder proyek
 
 USAGE
-    snipe-code audit [PATH] [--export <md,pdf,docx>]
+    snipe-code audit [PATH] [--export <md,pdf,docx>] [--json]
 
 DESKRIPSI
     Scan folder proyek untuk memeriksa kelengkapan file standar dan
@@ -312,11 +382,55 @@ ARGUMEN
 OPTIONS
     --export <md,pdf,docx>   Format export langsung tanpa prompt
                              (bisa kombinasi, pisahkan dengan koma)
+    --json                   Hasil audit (context, findings dengan severity dan
+                             lokasi, total) sebagai JSON di stdout. File laporan
+                             tetap ditulis; ringkasannya ke stderr, jadi stdout
+                             bisa di-parse.
 
 CONTOH
     snipe-code audit .                        Pilih format interaktif
     snipe-code audit . --export pdf,docx      Export PDF + DOCX langsung
     snipe-code audit ../proyek --export md    Export markdown
+    snipe-code audit . --export md --json     Laporan md + JSON di stdout
+"#;
+
+const ANALYZE_HELP: &str = r#"snipe-code analyze — Laporkan isi sebuah proyek
+
+USAGE
+    snipe-code analyze [PATH] [--json]
+
+DESKRIPSI
+    Analisis read-only dan offline. Tidak ada file di proyek target yang
+    dibuat, diubah, atau dihapus, dan tidak ada jaringan yang dipakai.
+    Laporan memuat bahasa beserta jumlah file dan barisnya, struktur tingkat
+    atas dan bagian proyek yang dikenali, entry point per bagian, dependency
+    per manifest, dan bagian Limits berisi apa yang tidak bisa dianalisis.
+
+    Traversal memakai walker yang sama dengan audit: direktori dependency,
+    hasil build, dan direktori hidden dilewati. Pengecualiannya src/bin, yang
+    berisi source di crate Rust.
+
+ARGUMEN
+    PATH            Folder yang dianalisis (default: direktori saat ini)
+
+OPTIONS
+    --json          Laporan yang sama sebagai JSON di stdout
+    -h, --help      Bantuan perintah ini
+
+EXIT STATUS
+    0   analisis selesai
+    2   kesalahan pemakaian (opsi tidak dikenal)
+    3   folder tidak ada atau bukan folder
+
+CATATAN
+    Angka yang dilaporkan adalah jumlah baris, bukan baris kode: baris kosong
+    dan komentar ikut dihitung. pom.xml dan *.csproj dipindai untuk nama
+    dependency, sedangkan package.json, composer.json, go.mod, dan Cargo.toml
+    di-parse.
+
+CONTOH
+    snipe-code analyze .
+    snipe-code analyze ../proyek --json
 "#;
 
 const VERIFY_HELP: &str = r#"snipe-code verify — Periksa gate kualitas proyek

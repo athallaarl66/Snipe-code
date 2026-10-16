@@ -1,31 +1,48 @@
 # SNIPE-CODE CLI
 
-**Rust project scaffolding and heuristic security-audit tool**
+[![CI](https://github.com/athallaarl66/Snipe-code/actions/workflows/ci.yml/badge.svg)](https://github.com/athallaarl66/Snipe-code/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-SNIPE-CODE adalah tool CLI berbasis Rust yang dirancang untuk mempercepat inisialisasi proyek dengan struktur folder proyek, pemeriksaan keamanan heuristik, dan otomatisasi alur kerja (Git, CI/CD, Docker).
+A Rust CLI that scaffolds projects, reads an existing codebase, and audits it for
+security risks. Everything runs locally: no account, no API key, no AI service.
+README in Indonesian: [README.id.md](README.id.md).
 
----
+## Install
 
-## ✨ Fitur Utama
+### Shell installer (no Rust toolchain)
 
-- 🏗️ **Preset Templates**:
-  - `Company Profile` (SEO ready)
-  - `Portfolio` (Showcase ready)
-  - `Blog / Posts` (MDX & RSS support)
-  - `No Template` (Clean start)
-- 🛠️ **Multi-Stack Scaffolding**: Dukungan Next.js, React, Vue, Nuxt (Frontend) serta .NET 8, NestJS, Go, Spring Boot, Laravel 12 (Backend).
-- 🔐 **Safety Defaults**: Generate `.env.example`, konfigurasi stack, dan `.gitignore`; audit tetap heuristik dan tidak menggantikan security review.
-- 📋 **Security Audit**: Scan folder proyek dan ekspor laporan ke format **Markdown**, **PDF**, atau **DOCX**.
-- 🤖 **AI Workspace + AI Agent Tools**: `.ai-workspace/` (`.ai-workspace/rules.md`, `.ai-workspace/rules.mdc`) selalu dibuat; artifact per AI agent tool (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`, `.opencode/`, `.agents/`, dst.) dibuat untuk tool yang **dipilih** saat generate.
-- ⚙️ **Otomasi**: Auto `git init`, `initial commit`, GitHub Actions (CI/CD), dan `docker-compose.yml`.
+Linux and macOS:
 
----
+```bash
+curl -fsSL https://raw.githubusercontent.com/athallaarl66/Snipe-code/main/install.sh | less
+bash install.sh
+```
 
-## 🚀 Cara Instalasi
+Windows PowerShell:
 
-Ada 3 cara — pilih sesuai kebutuhan. Semua butuh binary hasil compile; bedanya cuma di mana binary itu ditaruh.
+```powershell
+irm https://raw.githubusercontent.com/athallaarl66/Snipe-code/main/install.ps1 | more
+.\install.ps1
+```
 
-### Opsi A — Build dari Source (untuk developer / punya Rust)
+The installer downloads the release archive to a temporary directory, checks the
+published SHA-256 checksum, checks the cosign bundle when `cosign` is installed, and
+only then moves the binary into place. Nothing is piped into a shell. If the download
+fails or a check does not pass, it exits non-zero, says why, and leaves no partial
+binary behind. Default destination is `~/.local/bin` on POSIX and
+`%LOCALAPPDATA%\Programs\snipe-code` on Windows; both print a PATH hint. Override with
+`SNIPE_INSTALL_VERSION`, `SNIPE_INSTALL_DIR`, and `SNIPE_RELEASE_BASE_URL`.
+
+### cargo install (with a Rust toolchain)
+
+```bash
+cargo install snipe-code
+```
+
+Installs the released crate from crates.io into `~/.cargo/bin`. It needs a Rust
+toolchain, so it is not the no-toolchain path above.
+
+### Build from source
 
 ```bash
 git clone https://github.com/athallaarl66/Snipe-code.git
@@ -33,224 +50,280 @@ cd Snipe-code
 cargo build --release
 ```
 
-Binary ada di `target/release/snipe-code` (`target/release/snipe-code.exe` di Windows). Jalankan langsung dari sana, atau salin ke folder mana pun (portable — bisa dibawa ke device lain tanpa install apa pun).
+The binary lands in `target/release/snipe-code` (`.exe` on Windows) and is portable,
+so you can copy it anywhere. `target/` can reach hundreds of megabytes; once the
+binary is copied out, `cargo clean` reclaims it.
 
-**Catatan storage:** folder `target/` hasil compile bisa ratusan MB. Binary-nya sendiri kecil (~5MB). Setelah selesai, hapus artifact compile dengan:
+### Uninstall
 
-```bash
-cargo clean
-```
+Delete the binary the installer placed, or run `cargo uninstall snipe-code` if you
+installed through cargo. No registry keys or system files are touched.
 
-(exe di `target/release/` ikut terhapus — salin dulu ke tempat permanen kalau mau dipakai terus.)
+## Commands
 
-### Opsi B — Pakai Release Binary (untuk end user / tanpa Rust)
+| Command | What it does |
+| --- | --- |
+| `snipe-code` or `snipe-code new` | Wizard: template, stacks, database, project name, AI tools, generate |
+| `snipe-code analyze [PATH]` | Read-only report: languages and size, structure, entry points, dependencies, limits |
+| `snipe-code audit [PATH]` | Heuristic security audit with Markdown/PDF/DOCX export |
+| `snipe-code verify [PATH]` | Runs the quality gates the project declares |
+| `snipe-code version` | The compiled version (alias `--version`) |
+| `snipe-code help [command]` | General help and per-command help |
+| `snipe-code faq` | Install, uninstall, troubleshooting |
 
-Tidak perlu install Rust. Terima saja file `snipe-code.exe` dari developer/rilis, lalu:
-
-- Taruh di folder mana pun, jalankan: `snipe-code.exe audit . --export pdf,docx`
-- Atau tambahkan folder-nya ke PATH biar bisa ketik `snipe-code` dari mana saja
-
-### Opsi C — Install ke System (agar perintah `snipe-code` dikenali dari mana saja)
-
-```bash
-cargo install --path .
-```
-
-Menyalin binary ke `~/.cargo/bin` (sudah di PATH). Setelah ini `snipe-code` bisa dipanggil dari direktori mana pun.
-
-> **⚠️ Opsional? Tidak.** Tanpa salah satu cara di atas, perintah `snipe-code` tidak akan dikenali (`'snipe-code' is not recognized`). Pilih minimal satu opsi — A, B, atau C.
-
-### 🗑️ Uninstall
-
-- **Via cargo** (Opsi C): `cargo uninstall snipe-code`
-- **Portable exe** (Opsi A/B): cukup hapus file `snipe-code.exe` — tidak ada registry/system files yang disentuh
-
----
-
-## 🛠️ Panduan Penggunaan
-
-### 1. Inisialisasi Proyek Baru
-
-Jalankan perintah berikut untuk memulai wizard interaktif:
+## new: scaffold a project
 
 ```bash
-snipe-code
+snipe-code                                    # wizard
+snipe-code --dry-run                          # preview the structure, write nothing
+snipe-code new --ai-tools cursor,claude-code  # pick AI artifacts without prompting
+snipe-code new --ai-tools none --name demo --json
 ```
 
-_Atau jika belum di-install ke system:_ `cargo run --`
+Wizard order: template, frontend, backend, database, project name, collision prompt
+(Overwrite or Cancel), generate, CI/CD, Docker, AI workspace, then `git init` and an
+initial commit.
 
-**Alur Wizard:**
+| Flag | Effect |
+| --- | --- |
+| `--dry-run` | Print the structure without creating a file |
+| `--ai-tools <ids\|none>` | AI agent artifacts to generate, comma separated; `none` skips the prompt and generates none |
+| `--name <n>` | Skip the project-name prompt |
+| `--json` | Generate result (`project`, `ai_tools`, `ai_artifacts`, `ai_overlaps`, `files`, `outcome`) as JSON on stdout, progress on stderr |
 
-1. **Pilih Template**: Gunakan arrow keys untuk memilih preset.
-2. **Pilih Stack**: Pilih Frontend, Backend, dan Database yang diinginkan.
-3. **Project Name**: Masukkan nama folder tujuan.
-4. **AI Agent Tools** (opsional): multi-select tool AI yang dipakai; default tidak ada.
-5. **Collision Handling**: Jika folder sudah ada, Anda akan ditanya untuk _Overwrite_ atau _Cancel_.
-6. **Done!** Proyek siap dengan Git, CI/CD, dan AI Workspace.
+With no terminal (a script or CI) the wizard uses defaults and never prompts, so pass
+`--name` to make the project name explicit.
 
-### 2. Preview Tanpa Membuat File (Dry Run)
+Supported stacks. Frontend: Next.js, React (Vite), Vue, Nuxt. Backend: .NET 8,
+NestJS, Go (Gin), Spring Boot, Laravel 12. Database: PostgreSQL, MySQL. A generated
+project carries `.env.example`, `.gitignore`, `docker-compose.yml` for backend and
+database combinations, CI/CD workflows, and test infrastructure.
 
-Ingin melihat struktur folder apa yang akan dibuat tanpa benar-benar membuatnya?
+## analyze: what a project is made of
 
 ```bash
-snipe-code --dry-run
+snipe-code analyze .                 # text report
+snipe-code analyze ../other --json    # the same report as JSON on stdout
 ```
 
-### 3. Security Audit & Export
+Read-only and offline: no file in the target project is created, modified, or deleted,
+and nothing is fetched from the network. The report has five sections:
 
-Scan folder proyek dan ekspor laporan:
+- Languages: each language found, with its file and line totals.
+- Structure: top-level entries and the project parts the audit detector recognizes.
+- Entry points: where execution starts for each part, for example
+  `frontend/src/main.tsx`, `backend/main.go`, `src/main.rs`, `*Application.java`,
+  `Program.cs`, `artisan`.
+- Dependencies: what each manifest declares (`package.json`, `composer.json`,
+  `go.mod`, `Cargo.toml`, `pom.xml`, `*.csproj`).
+- Limits: what it could not analyze.
+
+Traversal reuses the audit walkers, so dependency and build output directories
+(`node_modules`, `vendor`, `target`, `dist`, `build`, `bin`, `obj`, `out`, `coverage`,
+`reports`) and hidden directories are left out of the numbers. One exception: `src/bin`
+holds real source in a Rust crate, so it still counts.
+
+What the Limits section says:
+
+- The figures are line counts, not lines of code. Blank lines and comments are
+  included: there is no code-versus-comment split, which would need a parser per
+  language.
+- `pom.xml` and `*.csproj` are scanned for dependency element names rather than
+  parsed, because this tool ships no XML parser. The other four manifests are parsed.
+- Files whose extension is outside the language table are reported as not analyzed
+  with their file count, instead of being dropped quietly.
+
+Exit status: `0` report printed, `2` usage error, `3` the path is missing or is not a
+directory. The `--json` output carries the same findings as the text report.
+
+## audit: security scan
 
 ```bash
-snipe-code audit . --export md
-snipe-code audit . --export pdf,docx
+snipe-code audit .                        # prompt for export format
+snipe-code audit . --export md            # Markdown only
+snipe-code audit . --export pdf,docx      # PDF and DOCX
+snipe-code audit . --export md --json     # report file plus JSON on stdout
 ```
 
-Format valid: `md`, `pdf`, `docx`. Duplikat dinormalisasi. Token kosong/unknown ditolak.
+Valid formats are `md`, `pdf`, and `docx`. Duplicates are normalized; an empty or
+unknown token is a usage error. With `--json` the report files are still written and
+the "exported files" summary moves to stderr, which keeps stdout parseable.
 
 Exit code:
 
-- `0`: audit selesai, tidak ada HIGH finding
-- `1`: HIGH finding terdeteksi
-- `2`: usage error, misalnya format export invalid
-- `3`: runtime/export error, misalnya path tidak ada
+- `0`: audit finished, no HIGH finding
+- `1`: a HIGH finding was found
+- `2`: usage error, for example an invalid export format
+- `3`: runtime or export error, for example a missing path
 
-Audit bersifat heuristik. Report mencantumkan detected context, rule groups, dan excluded paths. “No findings detected by evaluated rules” bukan jaminan proyek aman.
+The audit is heuristic. The report names the detected contexts, the rule groups that
+ran, and the excluded paths. "No findings detected by evaluated rules" does not prove
+a project is safe.
 
-### 4. Verifikasi proyek yang sudah ada (`verify`)
-
-Periksa apakah sebuah proyek benar-benar lulus gate kualitasnya:
+## verify: run the project's own gates
 
 ```bash
-snipe-code verify .                        # periksa semua gate yang berlaku
-snipe-code verify ../proyek --only test    # ulangi satu gate saja
-snipe-code verify . --security             # tambahkan gate kerentanan dependency
+snipe-code verify .                        # every declared gate
+snipe-code verify ../project --only test    # re-run one gate
+snipe-code verify . --security              # add the dependency vulnerability gate
 ```
 
-Gate diturunkan dari manifest proyek — bukan dari daftar stack yang di-generate tool ini — sehingga `verify` bekerja pada proyek mana pun yang dikenali:
+Gates come from the project's manifests, not from this tool's stack list, so
+`snipe-code verify` works on any project it recognizes:
 
-| Manifest                        | Gate yang dijalankan                                                   |
-| ------------------------------- | ---------------------------------------------------------------------- |
-| `package.json`                  | `npm install`, lalu `npm run <script>` untuk `typecheck`, `lint`, `test`, `build` yang memang dideklarasikan |
-| `composer.json` + `artisan`     | `composer install --no-interaction --no-progress`, `php artisan test`   |
+| Manifest | Gates run |
+| --- | --- |
+| `package.json` | `npm install`, then `npm run <script>` for the declared `typecheck`, `lint`, `test`, `build` |
+| `composer.json` + `artisan` | `composer install --no-interaction --no-progress`, `php artisan test` |
 | `composer.json` + `phpunit.xml` | `composer install --no-interaction --no-progress`, `php vendor/bin/phpunit` |
-| `go.mod`                        | `go mod download`, `go mod tidy`, `go vet ./...`, `go test ./...`, `go build ./...` |
-| `pom.xml`                       | `mvn test`, `mvn package -DskipTests`                                  |
-| `*.csproj` / `*.sln`            | `dotnet restore`, `dotnet test --no-restore`, `dotnet build --no-restore` |
+| `go.mod` | `go mod download`, `go mod tidy`, `go vet ./...`, `go test ./...`, `go build ./...` |
+| `pom.xml` | `mvn test`, `mvn package -DskipTests` |
+| `*.csproj` / `*.sln` | `dotnet restore`, `dotnet test --no-restore`, `dotnet build --no-restore` |
 
-Urutan gate tetap: `install` → `lint` → `typecheck` → `test` → `build` (+ `security` bila diminta). Setiap gate melaporkan satu dari empat status:
+Gate order is fixed: `install`, `lint`, `typecheck`, `test`, `build`, plus `security`
+when requested. Each gate reports one of four statuses:
 
-- `passed` — perintah selesai dengan exit 0
-- `failed` — perintah exit non-zero; nama gate dan perintahnya dicetak
-- `not-applicable` — proyek tidak mendeklarasikan apa pun untuk gate itu, jadi tidak ada perintah yang dijalankan
-- `unavailable` — tool-nya tidak terpasang di mesin ini; gate lain tetap lanjut
+- `passed`: the command exited 0
+- `failed`: the command exited non-zero, and the gate name and command are printed
+- `not-applicable`: the project declares nothing for that gate
+- `unavailable`: the tool is not installed here, and the remaining gates still run
 
 Exit code:
 
-- `0`: semua gate yang berlaku lulus
-- `1`: ada gate yang gagal
-- `2`: usage error, misalnya `--only` menunjuk gate yang tidak berlaku atau opsi tidak dikenal
-- `3`: tidak ada gate yang dijalankan, misalnya proyek tidak dikenali atau semua tool tidak tersedia
+- `0`: every applicable gate passed
+- `1`: a gate failed
+- `2`: usage error, for example `--only` naming a gate that does not apply
+- `3`: nothing ran, because the project was not recognized or no tool was available.
+  Such a run prints `tidak ada gate yang dijalankan` and exits without running a
+  single command.
 
-**`verify` vs `audit`.** `verify` menjalankan tool milik proyek (`npm`, `composer`, `mvn`, `dotnet`, `go`, `cargo`) sehingga **bisa memakai jaringan** — persis seperti CI proyek itu sendiri. Tool `snipe-code` tetap offline: ia tidak pernah memanggil jaringan, hanya men-spawn perintah yang sudah dideklarasikan proyek, dan setiap perintah dicetak sebelum dijalankan. Untuk analisis read-only yang sepenuhnya offline, pakai `snipe-code audit`.
+`verify` runs the project's own tools (`npm`, `composer`, `mvn`, `dotnet`, `go`,
+`cargo`), so it can use the network, exactly like that project's CI. `snipe-code`
+itself never touches the network; it only spawns commands the project already
+declares, and prints each command before running it. For a fully offline read-only
+analysis, use `snipe-code analyze` or `snipe-code audit`.
 
-`--security` memakai scanner bawaan ekosistem: `npm audit`, `composer audit`, `dotnet list package --vulnerable`. Go dan Java melaporkan gate ini sebagai `not-applicable` beserta alasannya, karena `govulncheck` dan OWASP dependency-check bukan bagian dari toolchain bawaannya.
+`--security` uses the scanners each ecosystem ships: `npm audit`, `composer audit`,
+`dotnet list package --vulnerable`. Go and Java report this gate as `not-applicable`
+with a reason, since `govulncheck` and OWASP dependency-check are not part of their
+default toolchains.
 
-Proyek dengan lebih dari satu bagian (misalnya `frontend/` dan `backend/`) diverifikasi per bagian, masing-masing di direktorinya sendiri. Proyek yang tidak dikenali dilaporkan `no gates found` dan keluar dengan status `3` tanpa menjalankan perintah apa pun. Batasan yang dikenal: deteksi memakai `audit::detect_scopes`, yang belum mengenali Python dan Ruby.
+A project with more than one part, such as `frontend/` and `backend/`, is verified
+part by part in its own directory. An unrecognized project reports `no gates found`.
+Known limitation: detection uses `audit::detect_scopes`, which does not recognize
+Python or Ruby yet.
 
-### Supported stack verification
+## Templates
 
-| Capability                     | Native verification (commands run by CI)                              |
-| ------------------------------ | --------------------------------------------------------------------- |
-| Next.js, React Vite, Vue, Nuxt | `npm install`, `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` |
-| NestJS                         | `npm install`, `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` |
-| Go Gin                         | `go mod download`, `go mod tidy`, `go test ./...`, `go vet ./...`, `go build ./...` |
-| Spring Boot                    | `mvn test package`                                                     |
-| .NET 8                         | `dotnet restore`, `dotnet test --no-restore`, `dotnet build --no-restore` |
-| Laravel 12                     | `composer install --no-interaction --no-progress`, `php artisan test`   |
-| PostgreSQL/MySQL Compose       | `docker compose config`                                                |
-
-Generated projects use one safe project-name destination. Existing destination requires explicit overwrite. Generation stages files first; failed generation cleans staging. Git init/commit is best effort.
-
-### Template: struktur, override, dan cara mengubahnya
-
-Isi setiap stack dan preset hidup sebagai file nyata di `templates/`, lalu di-embed ke binary saat build — tool tetap offline dan tetap satu file executable:
+Each stack and preset body is a real file under `templates/`, embedded into the binary
+at build time, so the tool stays offline and stays a single executable:
 
 ```text
 templates/
 ├── frontends/<id>/          # nextjs, react-vite, vue, nuxtjs
 │   ├── manifest.txt         # name=..., init=..., install=...
-│   ├── folders.txt          # satu path folder per baris
-│   └── files/<path>         # isi file yang ikut digenerate
+│   ├── folders.txt          # one folder path per line
+│   └── files/<path>         # content generated at that same path
 ├── backends/<id>/           # dotnet8, nestjs, go-gin, spring-boot, laravel
 │   └── (manifest.txt, folders.txt, files/<path>)
-└── presets/<id>/            # preset.json (folder + rules) dan content/<template_source>.txt
+└── presets/<id>/            # preset.json and content/<template_source>.txt
 ```
 
-Menambah atau mengubah template **tidak perlu menyentuh Rust**: tambahkan atau edit file di `templates/`, lalu `cargo build`. Setiap file di `files/<path>` digenerate apa adanya ke path yang sama di dalam proyek hasil generate, `folders.txt` menentukan folder kosong yang dibuat, dan `manifest.txt` menentukan nama tampilan, perintah init, dan perintah install stack.
+Adding or changing a template needs no Rust edit: change files under `templates/` and
+run `cargo build`.
 
-**Override lokal tanpa recompile.** Set `SNIPE_CODE_TEMPLATES` ke direktori dengan layout seperti `templates/`:
+To override locally without recompiling, point `SNIPE_CODE_TEMPLATES` at a directory
+laid out like `templates/`:
 
 ```bash
-SNIPE_CODE_TEMPLATES=/path/ke/templates-kerja snipe-code new
+SNIPE_CODE_TEMPLATES=/path/to/working-templates snipe-code new
 ```
 
-Resolusi bersifat per file: file yang disediakan direktori override menang atas default built-in, sedangkan file yang tidak disediakan tetap memakai default. Jadi override sebagian tetap sah — misalnya hanya `frontends/nextjs/files/package.json` untuk menaikkan versi dependency. Output `new` mencantumkan sumbernya, `Templates: local templates from <dir>` atau `Templates: built-in templates`, supaya jelas isi mana yang dipakai pada generate terakhir.
+Resolution is per file. A file the override directory provides wins over the built-in
+default, and files it does not provide keep the default, so a partial override is
+valid. Example: only `frontends/nextjs/files/package.json` to bump a dependency
+version. The `new` output names the source it used, `Templates: local templates from
+<dir>` or `Templates: built-in templates`.
 
-### AI agent tools (opsional)
+## AI agent tools
 
-Kalau mau, proyek hasil generate bisa langsung membawa artifact instruksi untuk tool AI yang Anda pakai — masing-masing di path yang tool itu memang baca, bukan di satu folder bersama:
+A generated project can carry instruction artifacts for the AI tools you use, each at
+the path that tool reads:
 
 | Tool | Artifact | Command |
 | --- | --- | --- |
-| Cross-tool (AGENTS.md) | `AGENTS.md` | — |
+| Cross-tool (AGENTS.md) | `AGENTS.md` | none |
 | Claude Code | `CLAUDE.md`, `.claude/skills/snipe-code/SKILL.md` | `.claude/commands/snipe-code.md` |
-| Cursor | `.cursor/rules/snipe-code.mdc`, `.cursorrules` | — |
+| Cursor | `.cursor/rules/snipe-code.mdc`, `.cursorrules` | none |
 | OpenCode | `.opencode/skills/snipe-code/SKILL.md` | `.opencode/commands/snipe-code.md` |
 | Antigravity | `GEMINI.md`, `.agents/rules/snipe-code.md`, `.agents/skills/snipe-code.md` | `.agents/workflows/snipe-code.md` |
-| GitHub Copilot | `.github/copilot-instructions.md` | — |
-| Windsurf | `.windsurf/rules/snipe-code.md` | — |
-| Hermes Agent | `.hermes/skills/snipe-code/SKILL.md` | — |
-| Codex | `AGENTS.md` | — |
-| Gemini CLI | `GEMINI.md` | — |
+| GitHub Copilot | `.github/copilot-instructions.md` | none |
+| Windsurf | `.windsurf/rules/snipe-code.md` | none |
+| Hermes Agent | `.hermes/skills/snipe-code/SKILL.md` | none |
+| Codex | `AGENTS.md` | none |
+| Gemini CLI | `GEMINI.md` | none |
 
-Daftar tool, path, dan formatnya hidup di `templates/ai-tools.json` (format: `markdown`, `mdc`, `skill`, `command`) — menambah tool = menambah entri registry, bukan mengubah kode generate. Format yang tidak dikenal = error, bukan artifact yang dilewati diam-diam.
+The tool list, paths, and formats live in `templates/ai-tools.json` (formats:
+`markdown`, `mdc`, `skill`, `command`). Adding a tool is a registry entry, not a code
+change. An unknown format produces an error instead of an artifact that is quietly
+skipped.
+
+- `--ai-tools <ids|none>` skips the selection prompt; `none` means no agent artifacts.
+- `--json` puts the generate result on stdout and progress on stderr.
+- A path claimed by more than one tool, such as `AGENTS.md` by the cross-tool entry and
+  Codex, is written once and the overlap is reported.
+- `.ai-workspace/rules.md` and `.ai-workspace/rules.mdc` are always written and render
+  from the same source as the per-tool artifacts.
+
+Skill directories are project-local (`<project>/.claude/skills/`,
+`<project>/.opencode/skills/`, `<project>/.hermes/skills/`). `snipe-code` writes no
+global configuration into your home directory.
+
+## Supported platforms
+
+The target list lives in `.github/release-targets.json`. Both the release matrix and
+the release validation read that file, and this table follows it.
+
+| Platform | Target | Archive |
+| --- | --- | --- |
+| Linux x86_64 | `x86_64-unknown-linux-gnu` | `.tar.gz` |
+| Windows x86_64 | `x86_64-pc-windows-msvc` | `.zip` |
+| macOS x86_64 (Intel) | `x86_64-apple-darwin` | `.tar.gz` |
+| macOS arm64 (Apple silicon) | `aarch64-apple-darwin` | `.tar.gz` |
+
+Adding a target means editing that one file: the `package` matrix and the archive count
+in the `publish` job read the same list, so there is no second edit.
+
+### Checking a release
+
+Every archive contains the executable, `LICENSE`, `README.md`, and `SOURCE_REVISION`,
+alongside a checksum and a keyless signature bundle:
 
 ```bash
-snipe-code new                                    # wizard, multi-select AI tools (default: tidak ada)
-snipe-code new --ai-tools cursor,claude-code      # pilih tool tanpa prompt
-snipe-code new --ai-tools none                    # tanpa artifact agen
-snipe-code new --ai-tools claude-code --name demo --json
-                                                  # hasil generate sebagai JSON di stdout
+sha256sum --check snipe-code-<version>-<target>.tar.gz.sha256
+cosign verify-blob --bundle snipe-code-<version>-<target>.tar.gz.bundle \
+  --certificate-identity-regexp 'https://github.com/athallaarl66/Snipe-code/.github/workflows/release.yml@.*' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  snipe-code-<version>-<target>.tar.gz
 ```
 
-- `--ai-tools <ids|none>` melewati prompt pemilihan. Tanpa terminal (script/CI) wizard memakai default dan tidak pernah prompt; beri `--name` supaya nama proyeknya jelas.
-- `--json` menaruh hasil generate di stdout (`project`, `ai_tools`, `ai_artifacts`, `ai_overlaps`, `files`, `outcome`); progress ke stderr, jadi stdout tetap bisa dibaca mesin.
-- Path yang diklaim lebih dari satu tool — misalnya `AGENTS.md` oleh cross-tool dan Codex — ditulis sekali, dan overlap-nya dilaporkan di output.
-- `.ai-workspace/rules.md` dan `rules.mdc` selalu ada; isinya dirender dari sumber yang sama dengan artifact per tool, jadi panduannya tidak bisa saling bertentangan.
+Run those only against artifacts that are actually on the GitHub Releases page. The
+same release run publishes the crate, so `cargo install snipe-code` installs the same
+version that was released.
 
-**Catatan:** direktori skill bersifat project-local (`<proyek>/.claude/skills/`, `<proyek>/.opencode/skills/`, `<proyek>/.hermes/skills/`). Tool baru memakai skill itu kalau konfigurasi tool tersebut memang menunjuk direktori proyek. `snipe-code` tidak menulis konfigurasi global di home directory — semua artifact ada di dalam folder proyek.
+## CI
 
-### Release verification
+This repository's CI (`.github/workflows/ci.yml`) runs the Rust gate plus a matrix that
+exercises generated projects:
 
-Release archives include executable, `LICENSE`, `README.md`, and `SOURCE_REVISION`. Verify checksum:
+| Job | What it proves |
+| --- | --- |
+| `rust` | `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets --all-features` |
+| `generated-frontend` | Next.js, React Vite, Vue, Nuxt: `npm install`, `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` |
+| `generated-backend` | NestJS, Go Gin, Spring Boot, .NET 8, Laravel 12: the install, lint, test, and build commands each declares |
+| `compose` | `docker compose config` for PostgreSQL, MySQL, and the NestJS + PostgreSQL combination |
 
-```bash
-sha256sum --check snipe-code-<version>-<target>.*.sha256
-```
-
-Verify keyless Cosign bundle:
-
-```bash
-cosign verify-blob --bundle archive.bundle archive
-```
-
-Only use commands against artifacts actually published on GitHub Releases.
-
----
-
-## 🧪 Testing
-
-Run repository quality gates:
+The local gate:
 
 ```bash
 cargo fmt --check
@@ -258,13 +331,11 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 ```
 
----
+## Documentation
 
-## 📂 Struktur Dokumentasi
+- `docs/features/`: PRD and technical design.
+- `docs/production/`: task breakdowns per feature.
 
-- `docs/features/`: PRD & Technical Design.
-- `docs/production/`: Detail breakdown tugas per fitur.
+## License
 
----
-
-Built with ❤️ by **SNIPE-CODE Team**
+MIT, see [LICENSE](LICENSE).

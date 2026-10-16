@@ -1,5 +1,6 @@
 pub mod ai_tools;
 pub mod ai_workspace;
+pub mod analyze;
 pub mod audit;
 pub mod cicd;
 pub mod commands;

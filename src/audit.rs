@@ -5,8 +5,45 @@ use std::path::Path;
 use dialoguer::MultiSelect;
 use docx_rs::*;
 use printpdf::*;
+use serde::Serialize;
 
 use crate::date;
+
+/// Directories no traversal descends into: dependencies, build output, generated
+/// reports. Hidden directories are skipped as well. Shared by the audit walkers and
+/// the analysis walkers so one edit keeps both views of a project in step.
+pub(crate) const EXCLUDED_DIRS: &[&str] = &[
+    "node_modules",
+    "vendor",
+    "target",
+    "dist",
+    "build",
+    "bin",
+    "obj",
+    "out",
+    "coverage",
+    "reports",
+];
+
+/// True for a directory every traversal skips. Hidden directories are skipped,
+/// and `bin`/`obj` are build output everywhere except below a source directory:
+/// `src/bin` is where a Rust crate keeps its additional binaries.
+pub(crate) fn is_excluded_dir(path: &Path) -> bool {
+    let Some(name) = path.file_name().map(|name| name.to_string_lossy()) else {
+        return false;
+    };
+    if name.starts_with('.') {
+        return true;
+    }
+    if !EXCLUDED_DIRS.contains(&name.as_ref()) {
+        return false;
+    }
+    let under_source = path
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .is_some_and(|parent| parent == "src");
+    !(under_source && matches!(name.as_ref(), "bin" | "obj"))
+}
 
 /// Tampilkan MultiSelect interaktif untuk memilih format export audit.
 /// Markdown pre-selected. Loop sampai minimal satu format dipilih.
@@ -30,9 +67,10 @@ pub fn select_export_formats() -> Vec<String> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AuditResult {
     pub exported_files: Vec<String>,
+    pub findings: Vec<Finding>,
     pub high: usize,
     pub medium: usize,
     pub low: usize,
@@ -103,6 +141,7 @@ pub fn run_audit_report(project_path: &str, export_format: &str) -> Result<Audit
     };
     Ok(AuditResult {
         exported_files,
+        findings,
         high,
         medium,
         low,
@@ -240,18 +279,7 @@ pub(crate) fn find_named_files(path: &Path, names: &[&str]) -> Vec<std::path::Pa
             continue;
         }
         if candidate.is_dir() {
-            let name = candidate.file_name().unwrap_or_default().to_string_lossy();
-            if name.starts_with('.')
-                || [
-                    "node_modules",
-                    "vendor",
-                    "target",
-                    "dist",
-                    "build",
-                    "reports",
-                ]
-                .contains(&name.as_ref())
-            {
+            if is_excluded_dir(&candidate) {
                 continue;
             }
             files.extend(find_named_files(&candidate, names));
@@ -265,13 +293,20 @@ pub(crate) fn find_named_files(path: &Path, names: &[&str]) -> Vec<std::path::Pa
     files
 }
 
-#[derive(Debug)]
-struct Finding {
-    severity: String,
-    category: String,
-    description: String,
-    file: String,
-    line: usize,
+/// One audit result. Public because the structured report serializes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Finding {
+    pub severity: String,
+    pub category: String,
+    pub description: String,
+    pub file: String,
+    pub line: usize,
+}
+
+/// The audit result as structured data: contexts, findings with severity and
+/// location, totals, and the files the human-readable report was written to.
+pub fn render_json(result: &AuditResult) -> Result<String, String> {
+    serde_json::to_string_pretty(result).map_err(|error| error.to_string())
 }
 
 // === CHECKS ===
@@ -428,40 +463,42 @@ fn check_supported_stack_sources(path: &Path, findings: &mut Vec<Finding>) {
     }
 }
 
-pub(crate) fn find_files(path: &Path, extension: &str) -> Vec<std::path::PathBuf> {
+/// Every file under `path` that is not inside an excluded directory. The single
+/// traversal shared by the audit and by the analysis report; callers filter.
+pub(crate) fn walk_files(path: &Path) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
-    if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let is_excluded_dir = entry
-                .file_type()
-                .map(|kind| kind.is_symlink())
-                .unwrap_or(true)
-                || (path.is_dir()
-                    && path.file_name().is_some_and(|n| {
-                        let name = n.to_string_lossy();
-                        name.starts_with('.')
-                            || [
-                                "node_modules",
-                                "vendor",
-                                "target",
-                                "dist",
-                                "build",
-                                "reports",
-                            ]
-                            .contains(&name.as_ref())
-                    }));
-            if path.is_dir() && !is_excluded_dir {
-                files.extend(find_files(&path, extension));
-            } else if path
-                .extension()
-                .is_some_and(|e| e.to_string_lossy() == extension[1..])
-            {
-                files.push(path);
+    let Ok(entries) = fs::read_dir(path) else {
+        return files;
+    };
+    for entry in entries.flatten() {
+        let candidate = entry.path();
+        let is_symlink = entry
+            .file_type()
+            .map(|kind| kind.is_symlink())
+            .unwrap_or(true);
+        if is_symlink {
+            continue;
+        }
+        if candidate.is_dir() {
+            if !is_excluded_dir(&candidate) {
+                files.extend(walk_files(&candidate));
             }
+        } else {
+            files.push(candidate);
         }
     }
     files
+}
+
+pub(crate) fn find_files(path: &Path, extension: &str) -> Vec<std::path::PathBuf> {
+    let wanted = extension.trim_start_matches('.');
+    walk_files(path)
+        .into_iter()
+        .filter(|file| {
+            file.extension()
+                .is_some_and(|found| found.to_string_lossy() == wanted)
+        })
+        .collect()
 }
 
 fn find_dotfiles(path: &Path, names: &[&str]) -> Vec<std::path::PathBuf> {
@@ -469,25 +506,12 @@ fn find_dotfiles(path: &Path, names: &[&str]) -> Vec<std::path::PathBuf> {
     if let Ok(entries) = fs::read_dir(path) {
         for entry in entries.flatten() {
             let path = entry.path();
-            let is_excluded_dir = entry
+            let skip = entry
                 .file_type()
                 .map(|kind| kind.is_symlink())
                 .unwrap_or(true)
-                || (path.is_dir()
-                    && path.file_name().is_some_and(|n| {
-                        let name = n.to_string_lossy();
-                        name.starts_with('.')
-                            || [
-                                "node_modules",
-                                "vendor",
-                                "target",
-                                "dist",
-                                "build",
-                                "reports",
-                            ]
-                            .contains(&name.as_ref())
-                    }));
-            if path.is_dir() && !is_excluded_dir {
+                || (path.is_dir() && is_excluded_dir(&path));
+            if path.is_dir() && !skip {
                 files.extend(find_dotfiles(&path, names));
             } else if path
                 .file_name()
