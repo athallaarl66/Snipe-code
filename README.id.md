@@ -391,6 +391,10 @@ cargo test --all-targets --all-features
 - `docs/features/`: PRD dan technical design.
 - `docs/production/`: breakdown tugas per fitur.
 
+## Author
+
+Athalla ([@athallaarl66](https://github.com/athallaarl66))
+
 ## Lisensi
 
 MIT, lihat [LICENSE](LICENSE).
