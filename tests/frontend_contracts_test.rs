@@ -10,6 +10,7 @@ fn fe_config(frontend: &str) -> GenerateConfig {
         frontend: frontend.to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     }
 }
 

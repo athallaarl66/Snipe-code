@@ -4,23 +4,22 @@ use snipe_code::verify;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let dry_run = args.contains(&"--dry-run".to_string());
     let code = std::process::exit;
 
     match args.get(1).map(|s| s.as_str()) {
         // Tanpa command → wizard (backward compatible)
-        None => run_new(false),
+        None => run_new_cmd(&args),
         Some("help") | Some("--help") | Some("-h") => match args.get(2) {
             Some(cmd) => print_command_help(cmd),
             None => print_help(),
         },
         Some("faq") => print_faq(),
         Some("version") | Some("--version") => println!("{}", env!("CARGO_PKG_VERSION")),
-        Some("new") => run_new(dry_run),
+        Some("new") => run_new_cmd(&args),
         Some("audit") => run_audit_cmd(&args),
         Some("verify") => run_verify_cmd(&args),
         // Backward compatible: snipe-code --dry-run
-        Some("--dry-run") => run_new(true),
+        Some("--dry-run") => run_new_cmd(&args),
         Some(other) if other.starts_with('-') => {
             println!("Unknown option: {}", other);
             println!("Run 'snipe-code help' untuk daftar perintah.");
@@ -34,8 +33,45 @@ fn main() {
     }
 }
 
-fn run_new(dry_run: bool) {
-    if let Err(e) = new::run(dry_run) {
+/// Parses the `new` options. The wizard itself is interactive; these options let
+/// a script or CI run it without a terminal.
+fn run_new_cmd(args: &[String]) {
+    let mut options = new::Options {
+        dry_run: args.iter().any(|arg| arg == "--dry-run"),
+        json: args.iter().any(|arg| arg == "--json"),
+        ..Default::default()
+    };
+
+    let mut i = 2;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--ai-tools" => match args.get(i + 1) {
+                Some(value) => {
+                    options.ai_tools = Some(value.clone());
+                    i += 2;
+                }
+                None => {
+                    eprintln!(
+                        "Usage error: --ai-tools membutuhkan nilai (id dipisah koma, atau 'none')."
+                    );
+                    std::process::exit(2);
+                }
+            },
+            "--name" => match args.get(i + 1) {
+                Some(value) => {
+                    options.name = Some(value.clone());
+                    i += 2;
+                }
+                None => {
+                    eprintln!("Usage error: --name membutuhkan nilai.");
+                    std::process::exit(2);
+                }
+            },
+            _ => i += 1,
+        }
+    }
+
+    if let Err(e) = new::run(options) {
         eprintln!("snipe-code: {}", e);
         std::process::exit(1);
     }
@@ -169,6 +205,10 @@ COMMANDS
 
 OPTIONS
     --dry-run      Preview struktur folder tanpa membuat file (dengan new)
+    --ai-tools <l> (new) AI agent tools yang di-generate, id dipisah koma
+                   (mis. cursor,claude-code) atau 'none' untuk tanpa artifact
+    --name <n>     (new) Nama proyek; melewati prompt nama
+    --json         (new) Hasil generate sebagai JSON di stdout; progress ke stderr
     --export <f>   Format export audit: md, pdf, docx (koma, contoh: pdf,docx)
     --only <g>     (verify) Batasi ke satu gate: install, lint, typecheck, test,
                    build, security
@@ -179,6 +219,10 @@ CONTOH
     snipe-code                          Wizard interaktif
     snipe-code new                      Wizard interaktif
     snipe-code new --dry-run            Preview struktur tanpa membuat file
+    snipe-code new --ai-tools cursor,claude-code
+                                        Generate dengan artifact Cursor + Claude Code
+    snipe-code new --ai-tools none --name demo --json
+                                        Tanpa artifact agen, hasil JSON di stdout
     snipe-code audit .                  Scan folder ini (pilih format interaktif)
     snipe-code audit . --export pdf,docx
                                         Scan dan export PDF + DOCX langsung
@@ -222,7 +266,7 @@ A: Jalankan 'snipe-code audit .' tanpa --export — muncul menu pilihan
 const NEW_HELP: &str = r#"snipe-code new — Generate proyek baru
 
 USAGE
-    snipe-code new [--dry-run]
+    snipe-code new [--dry-run] [--ai-tools <ids|none>] [--name <n>] [--json]
 
 ALUR WIZARD
     1. Pilih template (No Template / Company Profile / Portfolio / Blog)
@@ -230,14 +274,26 @@ ALUR WIZARD
     3. Pilih Backend (.NET 8, NestJS, Go, Spring Boot, Laravel, atau None)
     4. Pilih Database (PostgreSQL, MySQL, atau None)
     5. Masukkan nama proyek
-    6. Jika folder sudah ada: Overwrite atau Cancel
+    6. Pilih AI agent tools (multi-select, opsional — default: tidak ada)
+    7. Jika folder sudah ada: Overwrite atau Cancel
 
 OPTIONS
-    --dry-run    Tampilkan struktur yang akan dibuat tanpa membuat file
+    --dry-run            Tampilkan struktur yang akan dibuat tanpa membuat file
+    --ai-tools <ids>     AI agent tools yang di-generate, id dipisah koma:
+                         agents-md, claude-code, cursor, opencode, antigravity,
+                         github-copilot, windsurf, hermes-agent, codex, gemini-cli
+                         Nilai 'none' berarti tidak ada artifact agen. Opsi ini juga
+                         melewati prompt pemilihan AI tools.
+    --name <n>           Nama proyek; melewati prompt nama
+    --json               Hasil generate (tools, artifact, outcome) sebagai JSON
+                         di stdout; progress dan peringatan ke stderr
 
 CONTOH
     snipe-code new
     snipe-code new --dry-run
+    snipe-code new --ai-tools cursor,claude-code
+    snipe-code new --ai-tools none --name demo
+    snipe-code new --ai-tools claude-code --name demo --json
 "#;
 
 const AUDIT_HELP: &str = r#"snipe-code audit — Security audit folder proyek

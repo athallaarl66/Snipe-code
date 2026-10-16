@@ -1,100 +1,70 @@
+//! Writes the shared `.ai-workspace/` files plus every selected AI tool's
+//! artifacts, rendered from the registry in `ai_tools`.
+
 use std::fs;
 use std::path::Path;
 
-pub fn generate_ai_workspace(project_path: &str) -> Result<(), String> {
+use crate::ai_tools::{self, Plan};
+
+const SHARED_DESCRIPTION: &str = "Shared SNIPE-CODE rules for tools with no dedicated convention.";
+
+/// What generation wrote and which tool artifacts overlapped.
+#[derive(Debug, Default)]
+pub struct AiOutput {
+    pub tools: Vec<String>,
+    pub artifacts: Vec<String>,
+    pub overlaps: Vec<String>,
+}
+
+/// Writes `.ai-workspace/` (always: it is the shared guidance for tools with no
+/// dedicated convention) and the artifacts of `selected`. Nothing is written
+/// outside `project_path`.
+pub fn generate_ai_workspace(project_path: &str, selected: &[String]) -> Result<AiOutput, String> {
+    // Resolved before any directory is created, so a bad registry entry or an
+    // unknown tool leaves the destination untouched.
+    let plan = ai_tools::plan_selected(selected)?;
     let path = Path::new(project_path);
+    let shared = ai_tools::shared_content()?;
+
     let workspace_dir = path.join(".ai-workspace");
     fs::create_dir_all(&workspace_dir).map_err(|e| e.to_string())?;
-
-    // Generate rules for different AI IDEs
-    fs::write(workspace_dir.join("rules.md"), windsurf_rules()).map_err(|e| e.to_string())?;
-    fs::write(workspace_dir.join("rules.mdc"), cursor_rules()).map_err(|e| e.to_string())?;
-    // Project-root agent instruction files. Written inside the project tree only.
-    fs::write(path.join(".cursorrules"), cursor_rules()).map_err(|e| e.to_string())?;
-    fs::write(path.join("AGENTS.md"), agents_md()).map_err(|e| e.to_string())?;
+    write(
+        &workspace_dir.join("rules.md"),
+        &ai_tools::render("markdown", &shared, "snipe-code", SHARED_DESCRIPTION)?,
+    )?;
+    write(
+        &workspace_dir.join("rules.mdc"),
+        &ai_tools::render("mdc", &shared, "snipe-code", SHARED_DESCRIPTION)?,
+    )?;
     let audit_dir = workspace_dir.join("audit");
     fs::create_dir_all(&audit_dir).map_err(|e| e.to_string())?;
-    fs::write(audit_dir.join(".gitkeep"), "").map_err(|e| e.to_string())?;
+    write(&audit_dir.join(".gitkeep"), "")?;
 
-    Ok(())
+    let mut output = AiOutput::default();
+    for artifact in &plan.artifacts {
+        let dest = path.join(&artifact.path);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        write(&dest, &artifact.content)?;
+        output.artifacts.push(artifact.path.clone());
+        if !output.tools.contains(&artifact.tool) {
+            output.tools.push(artifact.tool.clone());
+        }
+    }
+    output.overlaps = plan
+        .overlaps
+        .iter()
+        .map(|o| format!("{}: kept {}, skipped {}", o.path, o.kept, o.skipped))
+        .collect();
+    Ok(output)
 }
 
-fn windsurf_rules() -> &'static str {
-    r#"# SNIPE-CODE AI Workspace Rules
-
-## Security Rules (CRITICAL)
-- NEVER hardcode secrets, API keys, or passwords
-- ALWAYS use environment variables for sensitive data
-- ALWAYS use parameterized queries (no string concatenation for SQL)
-- ALWAYS sanitize user input before rendering
-- NEVER use `eval()` or `exec()` with user input
-- ALWAYS validate and sanitize all inputs at trust boundaries
-
-## Code Style
-- Use TypeScript/JavaScript strict mode
-- Follow framework conventions (Next.js App Router, NestJS modules, etc.)
-- Prefer functional components over class components
-- Use proper error handling with try/catch or Result types
-
-## Token Optimization
-- Focus on code blocks only, minimal explanations
-- Use concise variable names
-- Avoid redundant comments
-- Output only what's necessary
-
-## Commands
-- `/pentest` - Review codebase for security vulnerabilities (OWASP)
-- `/snipe-code` - Enter extreme token efficiency mode
-- `/fix-smells` - Read audit report and fix code smells
-- `/gen-docs` - Generate SDD documentation from backend structure
-"#
+/// Renders the artifacts for `selected` without writing anything (dry run).
+pub fn preview(selected: &[String]) -> Result<Plan, String> {
+    ai_tools::plan_selected(selected)
 }
 
-fn cursor_rules() -> &'static str {
-    r#"# SNIPE-CODE AI Rules
-
-## Security First
-- No hardcoded secrets
-- Use environment variables
-- Parameterized queries only
-- Input sanitization required
-- XSS protection enabled
-
-## Code Quality
-- TypeScript strict mode
-- Proper error handling
-- Functional components
-- Clean architecture patterns
-
-## Token Efficiency
-- Minimal explanations
-- Code-focused output
-- Concise responses
-- No unnecessary verbosity
-"#
-}
-
-/// Cross-tool instruction file (`AGENTS.md`) written at the generated project root.
-fn agents_md() -> &'static str {
-    r#"# AGENTS.md
-
-Instructions for AI coding agents (Cursor, Claude Code, Codex, Copilot, Windsurf,
-Antigravity) working in this project.
-
-## Security Rules (CRITICAL)
-- NEVER hardcode secrets, API keys, or passwords — use environment variables
-- ALWAYS use parameterized queries instead of string-concatenated SQL
-- ALWAYS sanitize user input before rendering it
-- NEVER pass user input to `eval()` or `exec()`
-- ALWAYS validate input at trust boundaries
-
-## Workflow
-- Read this file and `.ai-workspace/rules.md` before editing code
-- Keep changes minimal and scoped to the request
-- Run the project's build and test command before claiming a change works
-
-## Token Efficiency
-- Prefer code over prose; do not restate the request back
-- State the change and the reason, then stop
-"#
+fn write(path: &Path, content: &str) -> Result<(), String> {
+    fs::write(path, content).map_err(|e| format!("cannot write '{}': {}", path.display(), e))
 }

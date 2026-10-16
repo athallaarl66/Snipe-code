@@ -1,3 +1,4 @@
+pub mod ai_tools;
 pub mod ai_workspace;
 pub mod audit;
 pub mod cicd;

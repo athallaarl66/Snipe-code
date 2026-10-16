@@ -16,7 +16,7 @@ SNIPE-CODE adalah tool CLI berbasis Rust yang dirancang untuk mempercepat inisia
 - 🛠️ **Multi-Stack Scaffolding**: Dukungan Next.js, React, Vue, Nuxt (Frontend) serta .NET 8, NestJS, Go, Spring Boot, Laravel 12 (Backend).
 - 🔐 **Safety Defaults**: Generate `.env.example`, konfigurasi stack, dan `.gitignore`; audit tetap heuristik dan tidak menggantikan security review.
 - 📋 **Security Audit**: Scan folder proyek dan ekspor laporan ke format **Markdown**, **PDF**, atau **DOCX**.
-- 🤖 **AI Workspace**: Otomatis generate `.cursorrules`, `AGENTS.md`, dan folder `.ai-workspace/` (`.ai-workspace/rules.md`, `.ai-workspace/rules.mdc`) untuk pengalaman coding lebih baik dengan AI Agent.
+- 🤖 **AI Workspace + AI Agent Tools**: `.ai-workspace/` (`.ai-workspace/rules.md`, `.ai-workspace/rules.mdc`) selalu dibuat; artifact per AI agent tool (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`, `.opencode/`, `.agents/`, dst.) dibuat untuk tool yang **dipilih** saat generate.
 - ⚙️ **Otomasi**: Auto `git init`, `initial commit`, GitHub Actions (CI/CD), dan `docker-compose.yml`.
 
 ---
@@ -84,8 +84,9 @@ _Atau jika belum di-install ke system:_ `cargo run --`
 1. **Pilih Template**: Gunakan arrow keys untuk memilih preset.
 2. **Pilih Stack**: Pilih Frontend, Backend, dan Database yang diinginkan.
 3. **Project Name**: Masukkan nama folder tujuan.
-4. **Collision Handling**: Jika folder sudah ada, Anda akan ditanya untuk _Overwrite_ atau _Cancel_.
-5. **Done!** Proyek siap dengan Git, CI/CD, dan AI Workspace.
+4. **AI Agent Tools** (opsional): multi-select tool AI yang dipakai; default tidak ada.
+5. **Collision Handling**: Jika folder sudah ada, Anda akan ditanya untuk _Overwrite_ atau _Cancel_.
+6. **Done!** Proyek siap dengan Git, CI/CD, dan AI Workspace.
 
 ### 2. Preview Tanpa Membuat File (Dry Run)
 
@@ -194,6 +195,40 @@ SNIPE_CODE_TEMPLATES=/path/ke/templates-kerja snipe-code new
 ```
 
 Resolusi bersifat per file: file yang disediakan direktori override menang atas default built-in, sedangkan file yang tidak disediakan tetap memakai default. Jadi override sebagian tetap sah — misalnya hanya `frontends/nextjs/files/package.json` untuk menaikkan versi dependency. Output `new` mencantumkan sumbernya, `Templates: local templates from <dir>` atau `Templates: built-in templates`, supaya jelas isi mana yang dipakai pada generate terakhir.
+
+### AI agent tools (opsional)
+
+Kalau mau, proyek hasil generate bisa langsung membawa artifact instruksi untuk tool AI yang Anda pakai — masing-masing di path yang tool itu memang baca, bukan di satu folder bersama:
+
+| Tool | Artifact | Command |
+| --- | --- | --- |
+| Cross-tool (AGENTS.md) | `AGENTS.md` | — |
+| Claude Code | `CLAUDE.md`, `.claude/skills/snipe-code/SKILL.md` | `.claude/commands/snipe-code.md` |
+| Cursor | `.cursor/rules/snipe-code.mdc`, `.cursorrules` | — |
+| OpenCode | `.opencode/skills/snipe-code/SKILL.md` | `.opencode/commands/snipe-code.md` |
+| Antigravity | `GEMINI.md`, `.agents/rules/snipe-code.md`, `.agents/skills/snipe-code.md` | `.agents/workflows/snipe-code.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` | — |
+| Windsurf | `.windsurf/rules/snipe-code.md` | — |
+| Hermes Agent | `.hermes/skills/snipe-code/SKILL.md` | — |
+| Codex | `AGENTS.md` | — |
+| Gemini CLI | `GEMINI.md` | — |
+
+Daftar tool, path, dan formatnya hidup di `templates/ai-tools.json` (format: `markdown`, `mdc`, `skill`, `command`) — menambah tool = menambah entri registry, bukan mengubah kode generate. Format yang tidak dikenal = error, bukan artifact yang dilewati diam-diam.
+
+```bash
+snipe-code new                                    # wizard, multi-select AI tools (default: tidak ada)
+snipe-code new --ai-tools cursor,claude-code      # pilih tool tanpa prompt
+snipe-code new --ai-tools none                    # tanpa artifact agen
+snipe-code new --ai-tools claude-code --name demo --json
+                                                  # hasil generate sebagai JSON di stdout
+```
+
+- `--ai-tools <ids|none>` melewati prompt pemilihan. Tanpa terminal (script/CI) wizard memakai default dan tidak pernah prompt; beri `--name` supaya nama proyeknya jelas.
+- `--json` menaruh hasil generate di stdout (`project`, `ai_tools`, `ai_artifacts`, `ai_overlaps`, `files`, `outcome`); progress ke stderr, jadi stdout tetap bisa dibaca mesin.
+- Path yang diklaim lebih dari satu tool — misalnya `AGENTS.md` oleh cross-tool dan Codex — ditulis sekali, dan overlap-nya dilaporkan di output.
+- `.ai-workspace/rules.md` dan `rules.mdc` selalu ada; isinya dirender dari sumber yang sama dengan artifact per tool, jadi panduannya tidak bisa saling bertentangan.
+
+**Catatan:** direktori skill bersifat project-local (`<proyek>/.claude/skills/`, `<proyek>/.opencode/skills/`, `<proyek>/.hermes/skills/`). Tool baru memakai skill itu kalau konfigurasi tool tersebut memang menunjuk direktori proyek. `snipe-code` tidak menulis konfigurasi global di home directory — semua artifact ada di dalam folder proyek.
 
 ### Release verification
 

@@ -57,6 +57,7 @@ fn test_blog_generates_sample_post() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let result = generator::generate(&config, false).unwrap();
 
@@ -78,6 +79,7 @@ fn test_blog_generates_rss_feed() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let result = generator::generate(&config, false).unwrap();
 
@@ -99,6 +101,7 @@ fn test_blog_generates_sample_post_with_real_date() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     generator::generate(&config, false).unwrap();
 
@@ -126,6 +129,7 @@ fn test_blog_dry_run_shows_files() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let output = generator::dry_run_preview(&config);
 

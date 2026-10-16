@@ -42,6 +42,7 @@ fn test_portfolio_generates_projects_json() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let result = generator::generate(&config, false).unwrap();
 
@@ -64,6 +65,7 @@ fn test_portfolio_generates_with_vue() {
         frontend: "vue".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let result = generator::generate(&config, false).unwrap();
 
@@ -79,6 +81,7 @@ fn test_portfolio_dry_run_shows_files() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let output = generator::dry_run_preview(&config);
 

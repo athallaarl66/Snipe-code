@@ -30,6 +30,7 @@ fn test_generate_refuses_existing_without_overwrite() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
 
     let result = generator::generate(&config, false);
@@ -55,6 +56,7 @@ fn test_generate_overwrites_existing_folder_when_authorized() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
 
     let result = generator::generate(&config, true).unwrap();
@@ -80,6 +82,7 @@ fn test_generate_overwrites_frontend_only() {
         frontend: "vue".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
 
     let result = generator::generate(&config, true).unwrap();
@@ -99,6 +102,7 @@ fn test_generate_overwrites_backend_only() {
         frontend: "none".to_string(),
         backend: "go-gin".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
 
     let result = generator::generate(&config, true).unwrap();
@@ -119,6 +123,7 @@ fn test_generate_overwrites_fullstack() {
         frontend: "nextjs".to_string(),
         backend: "nestjs".to_string(),
         database: "postgresql".to_string(),
+        ai_tools: Vec::new(),
     };
 
     let result = generator::generate(&config, true).unwrap();
@@ -141,6 +146,7 @@ fn test_dry_run_shows_collision_warning() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
 
     let output = generator::dry_run_preview(&config);
@@ -156,6 +162,7 @@ fn test_dry_run_no_warning_for_new_folder() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
 
     let output = generator::dry_run_preview(&config);
@@ -232,6 +239,7 @@ fn test_generate_refuses_junction_destination() {
                 frontend: "none".to_string(),
                 backend: "none".to_string(),
                 database: "none".to_string(),
+                ai_tools: Vec::new(),
             };
             assert!(
                 generator::generate(&config, true).is_err(),

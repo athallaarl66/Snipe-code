@@ -58,6 +58,7 @@ fn generate_and_verify(
         frontend: frontend.to_string(),
         backend: backend.to_string(),
         database: database.to_string(),
+        ai_tools: Vec::new(),
     };
     let repo = env::current_dir().map_err(|e| e.to_string())?;
     env::set_current_dir(workspace).map_err(|e| e.to_string())?;

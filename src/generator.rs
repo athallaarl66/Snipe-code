@@ -10,12 +10,17 @@ pub struct GenerateConfig {
     pub frontend: String,
     pub backend: String,
     pub database: String,
+    /// AI agent tools selected for this project (registry ids).
+    pub ai_tools: Vec<String>,
 }
 
 #[derive(Debug)]
 pub struct GenerateResult {
     pub folders: Vec<String>,
     pub files: Vec<String>,
+    pub ai_tools: Vec<String>,
+    pub ai_artifacts: Vec<String>,
+    pub ai_overlaps: Vec<String>,
 }
 
 pub fn folder_exists(project_name: &str) -> bool {
@@ -152,6 +157,9 @@ fn write_all(root: &Path, config: &GenerateConfig) -> Result<GenerateResult, Str
     let mut result = GenerateResult {
         folders: Vec::new(),
         files: Vec::new(),
+        ai_tools: Vec::new(),
+        ai_artifacts: Vec::new(),
+        ai_overlaps: Vec::new(),
     };
 
     // Template folders and files
@@ -241,11 +249,13 @@ fn write_all(root: &Path, config: &GenerateConfig) -> Result<GenerateResult, Str
         )?;
         result.files.push("docker-compose.yml".to_string());
     }
-    crate::ai_workspace::generate_ai_workspace(&root.to_string_lossy())?;
+    let ai = crate::ai_workspace::generate_ai_workspace(&root.to_string_lossy(), &config.ai_tools)?;
     result.files.push(".ai-workspace/rules.md".to_string());
     result.files.push(".ai-workspace/rules.mdc".to_string());
-    result.files.push(".cursorrules".to_string());
-    result.files.push("AGENTS.md".to_string());
+    result.ai_artifacts = ai.artifacts.clone();
+    result.files.extend(ai.artifacts);
+    result.ai_tools = ai.tools;
+    result.ai_overlaps = ai.overlaps;
 
     Ok(result)
 }
@@ -521,8 +531,14 @@ pub fn dry_run_preview(config: &GenerateConfig) -> String {
     entries.push(".env.example".to_string());
     entries.push(".gitignore".to_string());
     entries.push("README.md".to_string());
-    entries.push(".cursorrules".to_string());
-    entries.push("AGENTS.md".to_string());
+    // AI artifacts are registry-driven, so the preview cannot drift from the writer.
+    entries.push(".ai-workspace/rules.md".to_string());
+    entries.push(".ai-workspace/rules.mdc".to_string());
+    if let Ok(plan) = crate::ai_workspace::preview(&config.ai_tools) {
+        for artifact in plan.artifacts {
+            entries.push(artifact.path);
+        }
+    }
 
     format_tree(&config.project_name, &entries)
 }

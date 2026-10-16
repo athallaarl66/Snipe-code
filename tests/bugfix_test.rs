@@ -16,6 +16,7 @@ fn test_nest_cli_json_is_valid() {
         frontend: "none".to_string(),
         backend: "nestjs".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     generator::generate(&config, false).unwrap();
     let content = fs::read_to_string("app/backend/nest-cli.json").unwrap();
@@ -34,6 +35,7 @@ fn test_laravel_env_example_has_app_key_placeholder() {
         frontend: "none".to_string(),
         backend: "laravel".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     generator::generate(&config, false).unwrap();
     // No real .env is generated — only an environment template (safe default)
@@ -59,6 +61,7 @@ fn test_gitignore_no_duplicate_vendor() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     generator::generate(&config, false).unwrap();
     let content = fs::read_to_string("app/.gitignore").unwrap();
@@ -229,6 +232,7 @@ fn test_repeated_generate_without_overwrite_keeps_first_project() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
 
     generator::generate(&config, false).unwrap();
@@ -263,6 +267,7 @@ fn test_parallel_generate_distinct_names_do_not_clobber_fixtures() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     let cfg_b = GenerateConfig {
         project_name: "proj-b".to_string(),
@@ -270,6 +275,7 @@ fn test_parallel_generate_distinct_names_do_not_clobber_fixtures() {
         frontend: "vue".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
 
     let a = std::thread::spawn(move || generator::generate(&cfg_a, false).map(|_| ()));
@@ -293,6 +299,7 @@ fn test_generate_leaves_no_staging_dir_after_success() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     generator::generate(&config, false).unwrap();
 
@@ -324,6 +331,7 @@ fn test_failed_generate_cleans_staging() {
         frontend: "none".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: Vec::new(),
     };
     // generate() refuses existing dest without overwrite BEFORE staging begins,
     // so no staging dir should ever appear either.
@@ -386,6 +394,7 @@ fn test_generated_project_contains_advertised_ai_agent_files() {
         frontend: "nextjs".to_string(),
         backend: "none".to_string(),
         database: "none".to_string(),
+        ai_tools: vec!["agents-md".to_string(), "cursor".to_string()],
     };
     let result = generator::generate(&config, false).unwrap();
 
@@ -413,6 +422,7 @@ fn test_generated_files_stay_inside_project_tree() {
         frontend: "nextjs".to_string(),
         backend: "nestjs".to_string(),
         database: "postgresql".to_string(),
+        ai_tools: Vec::new(),
     };
     let result = generator::generate(&config, false).unwrap();
     let dest = generator::resolve_destination(&config.project_name).unwrap();
@@ -462,6 +472,7 @@ fn test_readme_documented_outputs_are_generated() {
         frontend: "nextjs".to_string(),
         backend: "nestjs".to_string(),
         database: "postgresql".to_string(),
+        ai_tools: vec!["agents-md".to_string(), "cursor".to_string()],
     };
     let result = generator::generate(&config, false).unwrap();
     for token in documented {
