@@ -280,6 +280,8 @@ OPTIONS
     --only <g>     (verify) Batasi ke satu gate: install, lint, typecheck, test,
                    build, security
     --security     (verify) Tambahkan gate kerentanan dependency
+    --no-install   (verify) Lewati gate install; dependency yang sudah ada
+                   dipakai apa adanya
     --version      Tampilkan versi CLI (sama dengan 'snipe-code version')
 
 CONTOH
@@ -298,6 +300,8 @@ CONTOH
     snipe-code verify .                 Periksa gate proyek di direktori ini
     snipe-code verify ../app --only test
                                         Jalankan hanya gate test
+    snipe-code verify . --no-install    Periksa tanpa menjalankan install
+                                        dependency
 
 DETAIL PER COMMAND
     snipe-code help new
@@ -313,8 +317,11 @@ A: Binary belum di-build/di-install. Solusi:
    1) Build dari source (butuh Rust):  cargo build --release
       Binary ada di target/release/snipe-code.exe — jalankan langsung
       atau salin ke folder mana pun (portable).
-   2) Install ke PATH:  cargo install --path .
-      Setelah ini 'snipe-code' bisa dipanggil dari direktori mana pun.
+   2) Install ke PATH:  cargo install --path . --locked
+      Flag --locked wajib: tanpa itu Cargo menyelesaikan dependency ulang dan
+      gagal karena lini zip 0.6.x (dipakai docx-rs) sudah yanked. --locked
+      memakai Cargo.lock repo. Setelah ini 'snipe-code' bisa dipanggil dari
+      direktori mana pun.
 
 Q: Bagaimana cara uninstall?
 A: - Jika di-install via cargo:  cargo uninstall snipe-code
@@ -323,7 +330,7 @@ A: - Jika di-install via cargo:  cargo uninstall snipe-code
 
 Q: Apa perbedaan build --release dan install --path?
 A: build --release menghasilkan file exe di target/release/ (bisa disalin,
-   portable). install --path . menyalinnya ke ~/.cargo/bin supaya perintah
+   portable). install --path . --locked menyalinnya ke ~/.cargo/bin supaya perintah
    'snipe-code' dikenali dari mana saja. Install menambah ~5MB; folder
    target/ (hasil compile) yang besar — hapus dengan:  cargo clean
 
@@ -331,6 +338,20 @@ Q: Audit tidak bisa pilih format?
 A: Jalankan 'snipe-code audit .' tanpa --export — muncul menu pilihan
    format (Markdown/PDF/DOCX). Atau beri flag langsung:
    snipe-code audit . --export pdf
+
+Q: Perintah ini harus dijalankan dari folder mana?
+A: 'new' menulis proyek ke <folder saat ini>/<nama proyek>, jadi cd dulu ke
+   folder induk sebelum menjalankan wizard. 'analyze', 'audit', dan 'verify'
+   menerima PATH (default: folder saat ini), jadi bisa dipanggil dari mana
+   saja:  snipe-code analyze ../proyek
+
+Q: Apakah verify mengubah isi proyek?
+A: Tool yang dijalankannya menulis ke folder proyek: node_modules/ dan
+   package-lock.json (npm), go.sum serta go.mod yang dirapikan 'go mod tidy',
+   target/ (maven), obj/ dan bin/ (dotnet). Pakai
+   'snipe-code verify . --no-install' kalau dependency sudah siap, atau
+   'snipe-code audit .' untuk pemeriksaan read-only. Laporan audit ditulis ke
+   dalam folder yang di-scan sebagai Audit_Report.md, .pdf, dan .docx.
 "#;
 
 const NEW_HELP: &str = r#"snipe-code new — Generate proyek baru
@@ -436,7 +457,7 @@ CONTOH
 const VERIFY_HELP: &str = r#"snipe-code verify — Periksa gate kualitas proyek
 
 USAGE
-    snipe-code verify [PATH] [--only <gate>] [--security]
+    snipe-code verify [PATH] [--only <gate>] [--security] [--no-install]
 
 DESKRIPSI
     Membaca manifest proyek lalu menjalankan gate yang memang dideklarasikan:
@@ -444,8 +465,11 @@ DESKRIPSI
     dilaporkan sebagai not-applicable, bukan dijalankan.
 
     Perintah ini menjalankan tool milik proyek (npm, composer, mvn, dotnet, go,
-    cargo) sehingga bisa memakai jaringan. Untuk analisis read-only yang
-    sepenuhnya offline, pakai 'snipe-code audit'.
+    cargo) sehingga bisa memakai jaringan, dan tool itu menulis ke folder
+    proyek: node_modules/, package-lock.json, go.sum, go.mod yang dirapikan
+    'go mod tidy', target/, obj/, dan bin/. Tidak ada yang dihapus, tapi pohon
+    proyek memang berubah. Untuk pemeriksaan read-only yang sepenuhnya offline,
+    pakai 'snipe-code analyze' atau 'snipe-code audit'.
 
 ARGUMEN
     PATH            Folder proyek (default: direktori saat ini)
@@ -454,6 +478,8 @@ OPTIONS
     --only <gate>   Jalankan hanya gate ini (harus berlaku di proyek)
     --security      Tambahkan gate kerentanan dependency: npm audit,
                     composer audit, dotnet list package --vulnerable
+    --no-install    Lewati gate install. Gate lain tetap jalan, dan gate
+                    install dilaporkan sebagai not-applicable
     -h, --help      Bantuan perintah ini
 
 EXIT STATUS
@@ -466,4 +492,5 @@ CONTOH
     snipe-code verify .
     snipe-code verify ../proyek --only test
     snipe-code verify . --security
+    snipe-code verify . --no-install
 "#;

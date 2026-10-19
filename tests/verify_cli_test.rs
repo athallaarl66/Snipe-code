@@ -60,9 +60,10 @@ fn per_command_help_documents_options_and_exit_status() {
     assert_eq!(status, Some(0));
     for expected in [
         "USAGE",
-        "snipe-code verify [PATH] [--only <gate>] [--security]",
+        "snipe-code verify [PATH] [--only <gate>] [--security] [--no-install]",
         "--only <gate>",
         "--security",
+        "--no-install",
         "EXIT STATUS",
         "not-applicable",
         "audit",
@@ -106,6 +107,30 @@ fn unrecognized_project_reports_no_gates_and_exits_three() {
     assert_eq!(status, Some(3), "{stdout}");
     assert!(stdout.contains("no gates found"), "{stdout}");
     assert!(stdout.contains("NOTHING EXECUTED"), "{stdout}");
+}
+
+#[test]
+fn no_install_leaves_nothing_to_run_when_install_is_the_only_gate() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"name":"app"}"#);
+    let path = fixture.path.to_string_lossy().to_string();
+    let (stdout, status) = run(&["verify", &path, "--no-install"]);
+    assert_eq!(status, Some(3), "{stdout}");
+    assert!(stdout.contains("not-applicable"), "{stdout}");
+    assert!(
+        stdout.contains("skipped by --no-install"),
+        "the report must say why install did not run:\n{stdout}"
+    );
+}
+
+#[test]
+fn no_install_with_only_install_is_rejected_by_the_cli() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"name":"app"}"#);
+    let path = fixture.path.to_string_lossy().to_string();
+    let (stdout, status) = run(&["verify", &path, "--no-install", "--only", "install"]);
+    assert_eq!(status, Some(2), "{stdout}");
+    assert!(stdout.contains("--no-install"), "{stdout}");
 }
 
 #[test]

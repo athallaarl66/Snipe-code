@@ -36,11 +36,14 @@ binary behind. Default destination is `~/.local/bin` on POSIX and
 ### cargo install (with a Rust toolchain)
 
 ```bash
-cargo install snipe-code
+cargo install snipe-code --locked
 ```
 
 Installs the released crate from crates.io into `~/.cargo/bin`. It needs a Rust
-toolchain, so it is not the no-toolchain path above.
+toolchain, so it is not the no-toolchain path above. Keep `--locked` here as well: the
+published package ships its `Cargo.lock`, and without the flag Cargo re-resolves the
+dependency graph, hits the `zip` releases its `docx-rs` dependency needs (all of them
+yanked upstream), and stops without selecting a version.
 
 ### Container image (Linux)
 
@@ -65,6 +68,34 @@ The binary lands in `target/release/snipe-code` (`.exe` on Windows) and is porta
 so you can copy it anywhere. `target/` can reach hundreds of megabytes; once the
 binary is copied out, `cargo clean` reclaims it.
 
+Cargo does not put that binary on `PATH`, so typing `snipe-code` in a fresh shell
+still fails with `'snipe-code' is not recognized as an internal or external command`.
+Run it by path from the checkout:
+
+```powershell
+.\target\release\snipe-code.exe faq
+```
+
+```bash
+./target/release/snipe-code faq
+```
+
+`cargo run --release -- faq` does the same thing without leaving the source tree. To
+type `snipe-code` from any directory, install the local build:
+
+```bash
+cargo install --path . --locked
+```
+
+That copies the binary into `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin` on Windows),
+which the Rust installer already adds to `PATH`, so a new shell resolves `snipe-code`.
+If it still is not recognized, add that directory to `PATH` yourself. The `--locked`
+flag is required: a plain `cargo install --path .` re-resolves dependencies, finds the
+`zip` releases its `docx-rs` dependency needs yanked upstream, and stops with
+`failed to select a version for the requirement`. `--locked` resolves from the
+repository's `Cargo.lock` instead and succeeds. Like any `cargo install`, it takes a snapshot: re-run it after changing
+the code, or keep using `cargo run`.
+
 ### Uninstall
 
 Delete the binary the installer placed, or run `cargo uninstall snipe-code` if you
@@ -82,6 +113,28 @@ installed through cargo. No registry keys or system files are touched.
 | `snipe-code help [command]` | General help and per-command help |
 | `snipe-code faq` | Install, uninstall, troubleshooting |
 
+### Where each command runs and what it writes
+
+| Command | Run it from | Reads | Writes | Exit codes |
+| --- | --- | --- | --- | --- |
+| `new` (or no argument) | the directory that should hold the new project. The project is created at `<current directory>/<name>`, so `cd` to its parent first. A path argument does not move it. | the embedded templates, or `SNIPE_CODE_TEMPLATES` | `<current directory>/<name>/`, then `git init` and an initial commit inside it | `0` generated, `1` generation failed, `2` usage error, `3` runtime error |
+| `analyze [PATH]` | anywhere; `PATH` defaults to the current directory | project files | nothing | `0`, `2`, `3` |
+| `audit [PATH]` | anywhere; `PATH` defaults to the current directory | project files | `Audit_Report.md`, `.pdf`, `.docx` inside `PATH` | `0`, `1`, `2`, `3` |
+| `verify [PATH]` | the project directory, or point `PATH` at it | manifests | nothing by itself; the gates it runs write into the project | `0`, `1`, `2`, `3` |
+| `help`, `version`, `faq` | anywhere | nothing | nothing | `0` |
+
+Two of them change files on disk:
+
+- `audit` writes its report into the scanned directory, next to the code. Without a
+  terminal it skips the format prompt and exports Markdown, printing
+  `Terminal non-interaktif — default export: markdown.` first, so it works unchanged in
+  a script.
+- `verify` is not read-only. Its gates are the project's own commands, so `npm install`
+  leaves `node_modules/` and `package-lock.json`, `go mod tidy` rewrites `go.mod` and
+  adds `go.sum`, `dotnet restore` leaves `obj/`, and Maven leaves `target/`. Nothing is
+  deleted, but the tree is not the same afterwards. Pass `--no-install` to skip the
+  install gate and use the dependencies already on disk.
+
 ## new: scaffold a project
 
 ```bash
@@ -95,6 +148,10 @@ Wizard order: template, frontend, backend, database, project name, collision pro
 (Overwrite or Cancel), generate, CI/CD, Docker, AI workspace, then `git init` and an
 initial commit.
 
+The project directory is created at `<current directory>/<name>`, so run the wizard
+from the folder that should hold it. The name comes from the prompt or `--name`; no
+argument redirects the output somewhere else.
+
 | Flag | Effect |
 | --- | --- |
 | `--dry-run` | Print the structure without creating a file |
@@ -102,7 +159,8 @@ initial commit.
 | `--name <n>` | Skip the project-name prompt |
 | `--json` | Generate result (`project`, `ai_tools`, `ai_artifacts`, `ai_overlaps`, `files`, `outcome`) as JSON on stdout, progress on stderr |
 
-With no terminal (a script or CI) the wizard uses defaults and never prompts, so pass
+With no terminal (a script or CI) the wizard uses defaults and never prompts: template
+none, frontend Next.js, backend none, database none, project name `my-project`. Pass
 `--name` to make the project name explicit.
 
 Supported stacks. Frontend: Next.js, React (Vite), Vue, Nuxt. Backend: .NET 8,
@@ -160,6 +218,10 @@ Valid formats are `md`, `pdf`, and `docx`. Duplicates are normalized; an empty o
 unknown token is a usage error. With `--json` the report files are still written and
 the "exported files" summary moves to stderr, which keeps stdout parseable.
 
+Each format is written into the scanned directory as `Audit_Report.md`,
+`Audit_Report.pdf`, and `Audit_Report.docx`. Those three names are in the `.gitignore`
+of a generated project, so a report does not end up in a commit by accident.
+
 Exit code:
 
 - `0`: audit finished, no HIGH finding
@@ -177,6 +239,7 @@ a project is safe.
 snipe-code verify .                        # every declared gate
 snipe-code verify ../project --only test    # re-run one gate
 snipe-code verify . --security              # add the dependency vulnerability gate
+snipe-code verify . --no-install            # skip the install gate
 ```
 
 Gates come from the project's manifests, not from this tool's stack list, so
@@ -213,6 +276,15 @@ Exit code:
 itself never touches the network; it only spawns commands the project already
 declares, and prints each command before running it. For a fully offline read-only
 analysis, use `snipe-code analyze` or `snipe-code audit`.
+
+Those commands also write inside the project: `node_modules/` and `package-lock.json`
+from `npm install`, `go.sum` plus a tidied `go.mod` from `go mod tidy`, `obj/` from
+`dotnet restore`, `target/` from Maven. A run therefore leaves the tree different from
+how it started, and nothing is removed. `--no-install` skips the install gate, reports
+it as `not-applicable` with the reason `skipped by --no-install`, and runs every other
+gate, which is what you want when the dependencies are already installed. Combining
+`--no-install` with `--only install` is a usage error, since it asks for the gate and
+skips it in the same run.
 
 `--security` uses the scanners each ecosystem ships: `npm audit`, `composer audit`,
 `dotnet list package --vulnerable`. Go and Java report this gate as `not-applicable`
@@ -359,8 +431,8 @@ cosign verify-blob --bundle snipe-code-<version>-<target>.tar.gz.bundle \
 ```
 
 Run those only against artifacts that are actually on the GitHub Releases page. The
-same release run publishes the crate, so `cargo install snipe-code` installs the same
-version that was released.
+same release run publishes the crate, so `cargo install snipe-code --locked` installs
+the same version that was released.
 
 ## CI
 

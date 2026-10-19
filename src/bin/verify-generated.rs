@@ -76,6 +76,7 @@ fn verify_generated(root: &Path, frontend: &str, backend: &str) -> Result<(), St
         path: root.to_path_buf(),
         only: None,
         security: false,
+        skip_install: false,
     };
     let report = verify::run(root, &options, &verify::exec::run)?;
     let stack = if backend == "none" { frontend } else { backend };

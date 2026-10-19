@@ -670,8 +670,16 @@ GitHub Releases/
 Each archive contains the executable, `LICENSE`, `README.md`, and `SOURCE_REVISION`.
 `install.sh` and `install.ps1` download an archive, verify the published checksum,
 verify the cosign bundle when `cosign` is installed, and only then place the binary.
-The crate is published to crates.io in the same run, so `cargo install snipe-code`
-installs the released version.
+The crate is published to crates.io in the same run, so `cargo install snipe-code
+--locked` installs the released version. The flag is not cosmetic. The packaged
+`Cargo.lock` pins `zip 0.6.6`, crates.io marks that release yanked, and a lockfile pin
+overrides yank status while a fresh resolve does not. At the last check the entire
+`zip` line was yanked and only the newest release was not, which is why no `docx-rs`
+requirement can currently be satisfied from a fresh resolve; re-check
+`https://crates.io/api/v1/crates/zip` before assuming that still holds. Two consequences: every `zip` release `docx-rs` accepts
+is yanked, so no dependency bump escapes this until upstream publishes a compatible
+one, and the `crate` job only publishes when the `CARGO_REGISTRY_TOKEN` secret exists,
+so until that secret is set no version of this crate is on crates.io at all.
 
 ### 11.3 CI/CD for CLI itself
 
@@ -699,6 +707,9 @@ The release workflow (`.github/workflows/release.yml`) has five jobs:
 | Stack version drift | Generate structure only; user installs deps via package manager |
 | Large template size | Embedded at compile-time; each template < 50KB JSON |
 | Git not installed | Graceful skip with warning; CLI works without git |
+| `zip` transitive dependency yanked upstream | Every build resolves from the committed `Cargo.lock`; install docs pass `--locked`; no escape until upstream ships a `zip` release `docx-rs` accepts |
+| `verify` writes into the project it checks | Every gate is the project's own command; the README states what each one writes, and `--no-install` skips the install gate |
+| Audit reports land inside the scanned project | Generated `.gitignore` ignores `Audit_Report.md`, `.pdf`, and `.docx`; the README names the three files |
 
 ---
 
