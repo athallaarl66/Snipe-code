@@ -118,7 +118,10 @@ jobs:
           while read -r target; do
             ls dist | grep -q -- "$target" || { echo "no archive published for $target"; exit 1; }
           done < <(jq -r '.targets[].target' .github/release-targets.json)
-          sha256sum --check dist/*.sha256
+          (
+            cd dist
+            sha256sum --check ./*.sha256
+          )
       - uses: sigstore/cosign-installer@v3.8.1
       - name: Sign archives with keyless OIDC
         shell: bash
