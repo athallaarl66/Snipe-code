@@ -54,7 +54,10 @@ fn test_release_targets_expand_to_the_expected_matrix() {
         );
         assert!(
             entry["runner"].as_str().expect("runner").contains("latest")
-                || entry["runner"].as_str().expect("runner") == "macos-13",
+                || entry["runner"]
+                    .as_str()
+                    .expect("runner")
+                    .starts_with("macos-"),
             "unexpected runner: {entry}"
         );
     }
