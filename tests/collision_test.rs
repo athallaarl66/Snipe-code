@@ -195,6 +195,38 @@ fn test_resolve_destination_rejects_uncreated_name() {
     assert!(result.unwrap().ends_with("brand-new-name-xyz"));
 }
 
+#[test]
+fn test_successful_overwrite_removes_backup_and_staging() {
+    let _ws = common::Workspace::new("collision-cleanup");
+    let project_name = "existing-cleanup";
+    fs::create_dir_all(project_name).unwrap();
+    fs::write(format!("{}/old.txt", project_name), "old").unwrap();
+
+    let config = GenerateConfig {
+        project_name: project_name.to_string(),
+        template_id: "none".to_string(),
+        frontend: "nextjs".to_string(),
+        backend: "none".to_string(),
+        database: "none".to_string(),
+        ai_tools: Vec::new(),
+    };
+    generator::generate(&config, true).unwrap();
+
+    let leftovers: Vec<_> = fs::read_dir(".")
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| {
+            name.contains("existing-cleanup.snipe-") || name.contains(".existing-cleanup.snipe-")
+        })
+        .collect();
+    assert!(
+        leftovers.is_empty(),
+        "generator left temporary siblings: {leftovers:?}"
+    );
+    assert!(!fs::exists(format!("{project_name}/old.txt")).unwrap());
+}
+
 #[cfg(unix)]
 #[test]
 fn test_resolve_destination_rejects_symlink_target() {

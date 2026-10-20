@@ -14,7 +14,8 @@ Instructions for AI coding agents working in this project.
 - Keep changes minimal and scoped to the request
 - Run the project's build and test command before claiming a change works
 - After touching input handling, secrets, or queries, run
-  `snipe-code audit . --export md` and fix every HIGH finding
+  `snipe-code audit . --export md`
+- Review each HIGH finding against source behavior. Report false positives unchanged. For confirmed risks, make the smallest safe fix, run tests, then repeat the audit
 
 ## Code Style
 - Follow the conventions of the stack this project was generated with

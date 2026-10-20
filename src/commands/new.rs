@@ -17,6 +17,10 @@ pub struct Options {
     /// Emit the generation result as JSON on stdout, progress on stderr.
     pub json: bool,
     pub name: Option<String>,
+    pub template: Option<String>,
+    pub frontend: Option<String>,
+    pub backend: Option<String>,
+    pub database: Option<String>,
     /// Comma-separated AI tool ids, or `none`. When set, no AI tool prompt is
     /// shown — scripts and CI can select tools without a terminal.
     pub ai_tools: Option<String>,
@@ -47,74 +51,19 @@ pub fn run(options: Options) -> Result<(), String> {
     let frontend_stacks = stack::frontend_stacks();
     let backend_stacks = stack::backend_stacks();
 
-    // Steps 1-5: prompts, or deterministic defaults when there is no terminal.
-    let (template_id, frontend_id, backend_id, database_id, project_name) = if interactive {
-        let template_names: Vec<String> = templates
-            .iter()
-            .map(|t| format!("{} {} — {}", t.icon, t.name, t.description))
-            .collect();
-        let template_idx = Select::new()
-            .with_prompt("Pilih Template")
-            .items(&template_names)
-            .default(0)
-            .interact()
-            .expect("Failed to read template selection");
-
-        let frontend_names: Vec<&str> = frontend_stacks.iter().map(|s| s.name.as_str()).collect();
-        let frontend_idx = Select::new()
-            .with_prompt("Pilih Frontend")
-            .items(&frontend_names)
-            .default(0)
-            .interact()
-            .expect("Failed to read frontend selection");
-
-        let backend_names: Vec<&str> = backend_stacks.iter().map(|s| s.name.as_str()).collect();
-        let backend_idx = Select::new()
-            .with_prompt("Pilih Backend")
-            .items(&backend_names)
-            .default(0)
-            .interact()
-            .expect("Failed to read backend selection");
-
-        let database_names: Vec<&str> = DATABASE_STACKS.iter().map(|s| s.name).collect();
-        let database_idx = Select::new()
-            .with_prompt("Pilih Database")
-            .items(&database_names)
-            .default(0)
-            .interact()
-            .expect("Failed to read database selection");
-
-        let name = match options.name.clone() {
-            Some(name) => name,
-            None => Input::new()
-                .with_prompt("Project Name")
-                .default("my-project".to_string())
-                .interact_text()
-                .expect("Failed to read project name"),
-        };
-
-        (
-            templates[template_idx].id.to_string(),
-            frontend_stacks[frontend_idx].id.clone(),
-            backend_stacks[backend_idx].id.clone(),
-            DATABASE_STACKS[database_idx].id.to_string(),
-            name,
-        )
-    } else {
-        emit(
-            "Terminal non-interaktif — default: template none, frontend nextjs, \
-             backend none, database none.",
-        );
-        (
-            "none".to_string(),
-            "nextjs".to_string(),
-            "none".to_string(),
-            "none".to_string(),
-            options
-                .name
-                .clone()
-                .unwrap_or_else(|| "my-project".to_string()),
-        )
+    // Steps 1-5: supplied values skip only their own prompts.
+    let template_id = choose_template(&options.template, &templates, interactive)?;
+    let frontend_id = choose_stack(&options.frontend, &frontend_stacks, "Frontend", interactive)?;
+    let backend_id = choose_stack(&options.backend, &backend_stacks, "Backend", interactive)?;
+    let database_id = choose_database(&options.database, interactive)?;
+    let project_name = match options.name.clone() {
+        Some(name) => name,
+        None if interactive => Input::new()
+            .with_prompt("Project Name")
+            .default("my-project".to_string())
+            .interact_text()
+            .map_err(|e| e.to_string())?,
+        None => "my-project".to_string(),
     };
 
     if let Err(e) = stack::validate_selection(&frontend_id, &backend_id) {
@@ -271,6 +220,86 @@ pub fn run(options: Options) -> Result<(), String> {
         println!("{}", structured_result(&config, Some(&result)));
     }
     Ok(())
+}
+
+fn choose_template(
+    value: &Option<String>,
+    templates: &[crate::template::Template],
+    interactive: bool,
+) -> Result<String, String> {
+    if let Some(id) = value {
+        return templates
+            .iter()
+            .find(|t| t.id == *id)
+            .map(|t| t.id.clone())
+            .ok_or_else(|| format!("unknown template: {}", id));
+    }
+    if !interactive {
+        return Ok("none".to_string());
+    }
+    let names: Vec<String> = templates
+        .iter()
+        .map(|t| format!("{} {} — {}", t.icon, t.name, t.description))
+        .collect();
+    let index = Select::new()
+        .with_prompt("Pilih Template")
+        .items(&names)
+        .default(0)
+        .interact()
+        .map_err(|e| e.to_string())?;
+    Ok(templates[index].id.clone())
+}
+
+fn choose_stack(
+    value: &Option<String>,
+    stacks: &[stack::StackOption],
+    label: &str,
+    interactive: bool,
+) -> Result<String, String> {
+    if let Some(id) = value {
+        return stacks
+            .iter()
+            .find(|s| s.id == *id)
+            .map(|s| s.id.clone())
+            .ok_or_else(|| format!("unknown {}: {}", label.to_lowercase(), id));
+    }
+    if !interactive {
+        return Ok(if label == "Frontend" {
+            "nextjs"
+        } else {
+            "none"
+        }
+        .to_string());
+    }
+    let names: Vec<&str> = stacks.iter().map(|s| s.name.as_str()).collect();
+    let index = Select::new()
+        .with_prompt(format!("Pilih {}", label))
+        .items(&names)
+        .default(0)
+        .interact()
+        .map_err(|e| e.to_string())?;
+    Ok(stacks[index].id.clone())
+}
+
+fn choose_database(value: &Option<String>, interactive: bool) -> Result<String, String> {
+    if let Some(id) = value {
+        return DATABASE_STACKS
+            .iter()
+            .find(|db| db.id == id)
+            .map(|db| db.id.to_string())
+            .ok_or_else(|| format!("unknown database: {}", id));
+    }
+    if !interactive {
+        return Ok("none".to_string());
+    }
+    let names: Vec<&str> = DATABASE_STACKS.iter().map(|db| db.name).collect();
+    let index = Select::new()
+        .with_prompt("Pilih Database")
+        .items(&names)
+        .default(0)
+        .interact()
+        .map_err(|e| e.to_string())?;
+    Ok(DATABASE_STACKS[index].id.to_string())
 }
 
 fn stack_name(stacks: &[stack::StackOption], id: &str) -> String {

@@ -1,6 +1,6 @@
 [package]
 name = "snipe-code"
-version = "0.5.0"
+version = "0.5.1"
 description = "Rust project scaffolding and heuristic security-audit CLI"
 default-run = "snipe-code"
 edition = "2024"

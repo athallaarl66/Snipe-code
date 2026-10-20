@@ -5,11 +5,19 @@
 
 A Rust CLI that scaffolds projects, reads an existing codebase, and audits it for
 security risks. Everything runs locally: no account, no API key, no AI service.
-README in Indonesian: [README.id.md](README.id.md).
+
+Current distribution status: build from source works. The published v0.5.0 release has
+no downloadable assets, the crate is not available from crates.io, and the container
+image is not verified. Use source build until a new release passes archive, checksum,
+installer, registry, and image checks.
 
 ## Install
 
-### Shell installer (no Rust toolchain)
+### Shell installer (currently unavailable)
+
+The latest public release has no downloadable archives. This is the no Rust toolchain
+channel, but it is unavailable until a release with published assets passes installer
+smoke tests.
 
 Linux and macOS:
 
@@ -33,28 +41,27 @@ binary behind. Default destination is `~/.local/bin` on POSIX and
 `%LOCALAPPDATA%\Programs\snipe-code` on Windows; both print a PATH hint. Override with
 `SNIPE_INSTALL_VERSION`, `SNIPE_INSTALL_DIR`, and `SNIPE_RELEASE_BASE_URL`.
 
-### cargo install (with a Rust toolchain)
+### cargo install (currently unavailable)
+
+The crate is not currently published on crates.io. The command below is the intended
+install path after publication, not a working command today:
 
 ```bash
 cargo install snipe-code --locked
 ```
 
-Installs the released crate from crates.io into `~/.cargo/bin`. It needs a Rust
-toolchain, so it is not the no-toolchain path above. Keep `--locked` here as well: the
-published package ships its `Cargo.lock`, and without the flag Cargo re-resolves the
-dependency graph, hits the `zip` releases its `docx-rs` dependency needs (all of them
-yanked upstream), and stops without selecting a version.
+For current use, build from source below.
 
-### Container image (Linux)
+### Container image (not verified)
+
+The image command is documented for the future release channel, but no public image
+has been verified yet:
 
 ```bash
 docker run --rm -v "$PWD:/work" -w /work ghcr.io/athallaarl66/snipe-code:latest audit . --export md
 ```
 
-The image holds the released Linux binary on a distroless base, so there is no shell,
-no package manager, and nothing else in it. Its tags follow the release tags, and
-`latest` follows the newest release. Mount the project you want inspected; the
-container sees only what you mount.
+Use source build or a local Docker build until the published image is checked.
 
 ### Build from source
 
@@ -200,7 +207,7 @@ What the Limits section says:
 - `pom.xml` and `*.csproj` are scanned for dependency element names rather than
   parsed, because this tool ships no XML parser. The other four manifests are parsed.
 - Files whose extension is outside the language table are reported as not analyzed
-  with their file count, instead of being dropped quietly.
+  with their file count, instead of being dropped.
 
 Exit status: `0` report printed, `2` usage error, `3` the path is missing or is not a
 directory. The `--json` output carries the same findings as the text report.
@@ -344,16 +351,13 @@ the agent differs.
 
 Both carry the same guidance: read `.ai-workspace/rules.md` before editing code, keep the
 change scoped to the request, run the project's build and test command before claiming
-the change works, and re-run `snipe-code audit . --export md` when the change touches
-input handling, secrets, or queries. The body is identical for every tool; only the
-frontmatter differs, because each format declares its metadata its own way. A `skill`
-gets `name` and `description`, an `mdc` rule gets `globs` and `alwaysApply`, a `command`
-gets `description`.
+it works, and re-run `snipe-code audit . --export md` when the change touches
+input handling, secrets, or queries. Review each HIGH finding against source behavior;
+report false positives and verify confirmed fixes with tests and a repeat audit.
 
-The `/snipe-code` command is that audit run, started by hand: it runs
-`snipe-code audit . --export md`, fixes every HIGH finding, runs the project's test
-command, then re-runs the audit. It is the only command a generated project gets, and it
-takes no arguments: `analyze`, `verify`, and `new` have no command counterpart.
+The `/snipe-code` command runs that audit, then asks the agent to review findings, test
+confirmed fixes, and repeat the audit. It is the only command artifact generated for
+agent tools; `analyze`, `verify`, and `new` have no command counterpart.
 
 `snipe-code` needs to be on `PATH` for the audit step in the skill and in the command to
 work.

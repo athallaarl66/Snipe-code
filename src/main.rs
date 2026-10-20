@@ -48,37 +48,52 @@ fn run_new_cmd(args: &[String]) {
 
     let mut i = 2;
     while i < args.len() {
-        match args[i].as_str() {
-            "--ai-tools" => match args.get(i + 1) {
-                Some(value) => {
-                    options.ai_tools = Some(value.clone());
-                    i += 2;
-                }
-                None => {
-                    eprintln!(
-                        "Usage error: --ai-tools membutuhkan nilai (id dipisah koma, atau 'none')."
-                    );
-                    std::process::exit(2);
-                }
-            },
-            "--name" => match args.get(i + 1) {
-                Some(value) => {
-                    options.name = Some(value.clone());
-                    i += 2;
-                }
-                None => {
-                    eprintln!("Usage error: --name membutuhkan nilai.");
-                    std::process::exit(2);
-                }
-            },
-            _ => i += 1,
+        let option = args[i].as_str();
+        if option == "--dry-run" || option == "--json" {
+            i += 1;
+            continue;
         }
+        let value = |name: &str| {
+            args.get(i + 1)
+                .filter(|v| !v.starts_with('-'))
+                .cloned()
+                .ok_or_else(|| format!("Usage error: {} membutuhkan nilai.", name))
+        };
+        match option {
+            "--ai-tools" => {
+                options.ai_tools = Some(value(option).unwrap_or_else(|e| usage_error(&e)))
+            }
+            "--name" => options.name = Some(value(option).unwrap_or_else(|e| usage_error(&e))),
+            "--template" => {
+                options.template = Some(value(option).unwrap_or_else(|e| usage_error(&e)))
+            }
+            "--frontend" => {
+                options.frontend = Some(value(option).unwrap_or_else(|e| usage_error(&e)))
+            }
+            "--backend" => {
+                options.backend = Some(value(option).unwrap_or_else(|e| usage_error(&e)))
+            }
+            "--database" => {
+                options.database = Some(value(option).unwrap_or_else(|e| usage_error(&e)))
+            }
+            other => usage_error(&format!("Unknown option or positional argument: {}", other)),
+        }
+        i += 2;
     }
 
     if let Err(e) = new::run(options) {
         eprintln!("snipe-code: {}", e);
-        std::process::exit(1);
+        let usage = e.starts_with("unknown ")
+            || e.contains("Pilih minimal Frontend")
+            || e.contains("valid project name")
+            || e.contains("requires");
+        std::process::exit(if usage { 2 } else { 1 });
     }
+}
+
+fn usage_error(message: &str) -> ! {
+    eprintln!("{}", message);
+    std::process::exit(2);
 }
 
 fn run_audit_cmd(args: &[String]) {
@@ -115,7 +130,11 @@ fn run_audit_cmd(args: &[String]) {
             if console::Term::stdout().is_term() {
                 audit::select_export_formats().join(",")
             } else {
-                println!("Terminal non-interaktif — default export: markdown.");
+                if json {
+                    eprintln!("Terminal non-interaktif — default export: markdown.");
+                } else {
+                    println!("Terminal non-interaktif — default export: markdown.");
+                }
                 "md".to_string()
             }
         }

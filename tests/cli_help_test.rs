@@ -139,6 +139,62 @@ fn test_unknown_help_topic() {
 }
 
 #[test]
+fn test_new_rejects_invalid_options_before_mutation() {
+    let dir = std::env::temp_dir().join(format!("snipe-new-cli-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    for args in [
+        vec!["new", "--unknown"],
+        vec!["new", "--name"],
+        vec!["new", "unexpected"],
+        vec!["new", "--frontend", "missing-stack"],
+        vec!["new", "--frontend", "none", "--backend", "none"],
+    ] {
+        let out = Command::new(BIN)
+            .args(&args)
+            .current_dir(&dir)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2), "args: {args:?}");
+        assert!(
+            !dir.join("my-project").exists(),
+            "usage error mutated project: {args:?}"
+        );
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_new_accepts_explicit_selection_and_dry_run_alias() {
+    let dir = std::env::temp_dir().join(format!("snipe-new-valid-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let out = Command::new(BIN)
+        .args([
+            "new",
+            "--template",
+            "none",
+            "--frontend",
+            "nextjs",
+            "--backend",
+            "none",
+            "--database",
+            "none",
+            "--name",
+            "demo",
+            "--dry-run",
+        ])
+        .current_dir(&dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(!dir.join("demo").exists());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_audit_non_interactive_defaults_to_markdown() {
     // Dir temp dengan file minimal
     let dir = std::env::temp_dir().join(format!("snipe_audit_test_{}", std::process::id()));
