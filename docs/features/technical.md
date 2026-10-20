@@ -713,6 +713,22 @@ The release workflow (`.github/workflows/release.yml`) has five jobs:
 
 ---
 
+## Current implementation status
+
+Technical source of truth is current Rust code and tests.
+
+- `src/main.rs` parses commands and explicit `new` selections.
+- `src/commands/new.rs` handles wizard defaults, validation, collision prompts, and JSON output.
+- `src/template.rs` embeds presets and supports `SNIPE_CODE_TEMPLATES` overrides.
+- `src/stack.rs` owns frontend, backend, and database registries.
+- `src/generator.rs` stages output, validates manifests, and uses backup swap for overwrite.
+- `src/audit.rs` owns shared traversal, heuristic findings, scope detection, and exports.
+- `src/analyze/` provides read-only project analysis.
+- `src/verify/` derives quality gates from project manifests.
+- `src/ai_tools.rs` and `src/ai_workspace.rs` generate opt-in external-agent files.
+
+Audit findings require source review. Blog RSS is a static sample with localhost URL. Release archives, registry publication, and container image require independent public evidence.
+
 ## 13. Change History
 
 | Version | Date | Author | Description |

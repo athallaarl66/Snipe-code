@@ -332,11 +332,24 @@ fn check_hardcoded_secrets(path: &Path, findings: &mut Vec<Finding>) {
         if let Ok(content) = fs::read_to_string(&file) {
             for (line_num, line) in content.lines().enumerate() {
                 for pattern in &secret_patterns {
-                    if line.to_lowercase().contains(pattern)
+                    let lower = line.to_lowercase();
+                    let value = line.split_once('=').map(|(_, value)| value.trim());
+                    let literal_value = value.is_some_and(|value| {
+                        (!value.is_empty())
+                            && (value.contains('"')
+                                || value.contains('\'')
+                                || file
+                                    .file_name()
+                                    .is_some_and(|name| name == ".env" || name == ".env.local"))
+                            && !value.contains("process.env")
+                            && !value.contains("your-")
+                            && !value.contains("placeholder")
+                            && !value.contains("example")
+                    });
+                    if lower.contains(pattern)
                         && !line.trim().starts_with('#')
                         && line.contains('=')
-                        && !line.contains("process.env")
-                        && !line.contains("your-")
+                        && literal_value
                     {
                         findings.push(Finding {
                             severity: "HIGH".to_string(),
@@ -376,7 +389,18 @@ fn check_sql_injection(path: &Path, findings: &mut Vec<Finding>) {
         for file in files {
             if let Ok(content) = fs::read_to_string(&file) {
                 for (line_num, line) in content.lines().enumerate() {
-                    if (line.contains("query") || line.contains("sql")) && line.contains('+') {
+                    let lower = line.to_lowercase();
+                    let executable_query = (lower.contains("query") || lower.contains("sql"))
+                        && line.contains('+')
+                        && (line.contains("SELECT")
+                            || line.contains("INSERT")
+                            || line.contains("UPDATE")
+                            || line.contains("DELETE")
+                            || line.contains("select")
+                            || line.contains("insert")
+                            || line.contains("update")
+                            || line.contains("delete"));
+                    if executable_query {
                         findings.push(Finding {
                             severity: "HIGH".to_string(),
                             category: "SQL Injection".to_string(),
@@ -443,10 +467,20 @@ fn check_supported_stack_sources(path: &Path, findings: &mut Vec<Finding>) {
                 continue;
             };
             for (line_num, line) in content.lines().enumerate() {
-                let sql = (line.contains("query") || line.contains("sql")) && line.contains('+');
-                let secret = ["password=", "api_key=", "apiKey=", "token="]
+                let lower = line.to_lowercase();
+                let sql = (lower.contains("query") || lower.contains("sql"))
+                    && (line.contains('+') || line.contains(" . "))
+                    && ["select", "insert", "update", "delete"]
+                        .iter()
+                        .any(|keyword| lower.contains(keyword));
+                let secret = ["password=", "api_key=", "apikey=", "token=", "private_key="]
                     .iter()
-                    .any(|pattern| line.contains(pattern));
+                    .any(|pattern| lower.contains(pattern))
+                    && (line.contains('"') || line.contains('\''))
+                    && !lower.contains("process.env")
+                    && !lower.contains("your-")
+                    && !lower.contains("placeholder")
+                    && !lower.contains("example");
                 if sql || secret {
                     findings.push(Finding {
                         severity: "HIGH".to_string(),

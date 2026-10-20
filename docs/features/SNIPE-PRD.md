@@ -343,7 +343,22 @@ my-project/
 
 ---
 
-## 13. Approval
+## Current implementation status
+
+This status section overrides older unchecked planning examples above.
+
+Implemented:
+- `new` supports `--template`, `--frontend`, `--backend`, `--database`, `--name`, `--ai-tools`, `--json`, and `--dry-run`.
+- Presets: `none`, `company-profile`, `portfolio`, and `blog`.
+- Frontends: `nextjs`, `react-vite`, `vue`, `nuxtjs`, and `none`.
+- Backends: `dotnet8`, `nestjs`, `go-gin`, `spring-boot`, `laravel`, and `none`.
+- `analyze` is read-only. `audit` writes reports into scanned directory. `verify` runs project tools and can write dependency/build output.
+- Audit findings are heuristic and require source review before edits.
+
+Limitations and deferred work:
+- IoT Dashboard, live RSS generation, template marketplace, cloud deployment, and automatic UI component installation are not implemented.
+- Blog RSS is static sample with localhost URL. New posts do not update it automatically.
+- Release archives, crates.io package, and container image need publication plus independent smoke-test evidence.
 
 | Role | Name | Signature | Date |
 |------|------|-----------|------|

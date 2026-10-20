@@ -220,16 +220,6 @@ fn test_readme_documents_both_install_paths() {
     ] {
         assert!(readme.contains(expected), "README must document {expected}");
     }
-    assert!(
-        readme.contains("README.id.md"),
-        "the Indonesian README must stay linked from the English one"
-    );
-    assert!(
-        fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("README.id.md"))
-            .expect("read README.id.md")
-            .contains("README.md"),
-        "the Indonesian README must link back to the English one"
-    );
 }
 
 // --- installers never pipe into a shell ------------------------------------

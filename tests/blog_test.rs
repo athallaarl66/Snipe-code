@@ -90,6 +90,9 @@ fn test_blog_generates_rss_feed() {
     let content = std::fs::read_to_string(rss_path).unwrap();
     assert!(content.contains("<rss"));
     assert!(content.contains("<channel>"));
+    assert!(content.contains("localhost:3000"));
+    assert!(content.contains("Hello World"));
+    // Static sample feed. New posts do not update this file automatically.
 }
 
 #[test]

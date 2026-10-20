@@ -17,6 +17,6 @@ Edit this file or create new `.mdx` files in the `posts/` directory.
 ## Features
 
 - Markdown/MDX support
-- Automatic RSS feed
+- RSS sample included; update it manually when publishing
 - Categories and tags
 - Responsive design

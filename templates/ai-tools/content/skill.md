@@ -7,7 +7,8 @@ Use this skill when editing code in a SNIPE-CODE generated project.
 2. Make the smallest change that satisfies the request.
 3. Run the project's declared build and test command before claiming success.
 4. When the change touches input handling, secrets, or queries, run
-   `snipe-code audit . --export md` and fix every HIGH finding.
+   `snipe-code audit . --export md`.
+5. Review each HIGH finding against source behavior. Report false positives unchanged. For confirmed risks, make the smallest safe fix, run tests, then repeat the audit.
 
 ## Rules
 - No hardcoded secrets; environment variables only.

@@ -308,46 +308,88 @@ fn validate_staged(root: &Path, config: &GenerateConfig) -> Result<(), String> {
     Ok(())
 }
 
-/// Publishes the staged directory to the destination. New destinations are
-/// published by rename; existing ordinary directories are replaced only after
-/// explicit overwrite authorization (already enforced by caller).
+/// Publishes staged output by an atomic sibling-directory swap.
 fn publish(staging: &Path, dest: &Path, overwrite: bool) -> Result<(), String> {
-    if dest.exists() {
-        if !overwrite {
+    if !dest.exists() {
+        return fs::rename(staging, dest)
+            .map_err(|e| format!("Cannot publish project to '{}': {}", dest.display(), e));
+    }
+    if !overwrite {
+        return Err(format!(
+            "Destination '{}' already exists (use overwrite to replace)",
+            dest.display()
+        ));
+    }
+    match fs::symlink_metadata(dest) {
+        Ok(meta) if meta.file_type().is_symlink() => {
             return Err(format!(
-                "Destination '{}' already exists (use overwrite to replace)",
+                "Destination '{}' is a symlink/junction — refusing to replace it",
                 dest.display()
             ));
         }
-        match fs::symlink_metadata(dest) {
-            Ok(meta) if meta.file_type().is_symlink() => {
-                return Err(format!(
-                    "Destination '{}' is a symlink/junction — refusing to replace it",
-                    dest.display()
-                ));
-            }
-            Ok(_) => {
-                fs::remove_dir_all(dest).map_err(|e| {
-                    format!(
-                        "Cannot remove existing destination '{}': {}",
-                        dest.display(),
-                        e
-                    )
-                })?;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => {
-                return Err(format!(
-                    "Cannot inspect destination '{}': {}",
-                    dest.display(),
-                    e
-                ));
-            }
+        Ok(_) => {}
+        Err(e) => {
+            return Err(format!(
+                "Cannot inspect destination '{}': {}",
+                dest.display(),
+                e
+            ));
         }
     }
-    fs::rename(staging, dest)
-        .map_err(|e| format!("Cannot publish project to '{}': {}", dest.display(), e))?;
+
+    let parent = dest
+        .parent()
+        .ok_or_else(|| "Destination has no parent directory".to_string())?;
+    let name = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project");
+    let backup = unique_sibling(parent, name, "snipe-backup")?;
+    fs::rename(dest, &backup).map_err(|e| {
+        format!(
+            "Cannot move existing destination '{}' to backup '{}': {}",
+            dest.display(),
+            backup.display(),
+            e
+        )
+    })?;
+
+    if let Err(publish_error) = fs::rename(staging, dest) {
+        return match fs::rename(&backup, dest) {
+            Ok(()) => Err(format!(
+                "Cannot publish project to '{}': {}; old project restored",
+                dest.display(),
+                publish_error
+            )),
+            Err(restore_error) => Err(format!(
+                "Cannot publish project to '{}': {}; old project retained at '{}'; restoration failed: {}",
+                dest.display(),
+                publish_error,
+                backup.display(),
+                restore_error
+            )),
+        };
+    }
+
+    if let Err(e) = fs::remove_dir_all(&backup) {
+        return Err(format!(
+            "Project published, but old project cleanup failed; retained old project at '{}': {}",
+            backup.display(),
+            e
+        ));
+    }
     Ok(())
+}
+
+fn unique_sibling(parent: &Path, name: &str, kind: &str) -> Result<PathBuf, String> {
+    let pid = std::process::id();
+    for attempt in 0..100u32 {
+        let candidate = parent.join(format!(".{}.{}-{}-{}", name, kind, pid, attempt));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!("Could not allocate a unique {} directory", kind))
 }
 
 fn env_example_content(database: &str) -> String {
@@ -590,4 +632,27 @@ pub fn declared_scripts(dir: &std::path::Path) -> Vec<String> {
         .and_then(|scripts| scripts.as_object())
         .map(|scripts| scripts.keys().cloned().collect())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::publish;
+    use std::fs;
+
+    #[test]
+    fn failed_final_publish_restores_old_destination() {
+        let root = std::env::temp_dir().join(format!("snipe-publish-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let dest = root.join("project");
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(dest.join("old.txt"), "old").unwrap();
+        let missing_staging = root.join("missing-staging");
+
+        let error = publish(&missing_staging, &dest, true).unwrap_err();
+        assert!(error.contains("old project restored"));
+        assert!(dest.join("old.txt").exists());
+        assert!(!root.join(".project.snipe-backup").exists());
+        let _ = fs::remove_dir_all(root);
+    }
 }

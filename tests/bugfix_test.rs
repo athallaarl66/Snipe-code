@@ -195,6 +195,51 @@ fn test_audit_ignores_placeholder_dotenv() {
 }
 
 #[test]
+fn test_audit_ignores_keyword_only_lines_but_keeps_literal_risks() {
+    let safe = temp_project("audit-safe-pairs");
+    fs::write(
+        safe.join("src.js"),
+        "const tokenName = value;\nconst queryLabel = \"display query + value\";\n",
+    )
+    .unwrap();
+    fs::write(safe.join("safe.php"), "$token = getenv('TOKEN');\n").unwrap();
+    let safe_report = audit::run_audit_report(&safe.to_string_lossy(), "md").unwrap();
+    assert!(
+        safe_report
+            .findings
+            .iter()
+            .all(|finding| finding.severity != "HIGH")
+    );
+    let _ = fs::remove_dir_all(&safe);
+
+    let unsafe_project = temp_project("audit-unsafe-pairs");
+    fs::write(
+        unsafe_project.join("src.js"),
+        "const api_key = \"real-secret\";\n",
+    )
+    .unwrap();
+    fs::write(
+        unsafe_project.join("unsafe.php"),
+        "$sql = \"SELECT * FROM users WHERE id = \" . $id;\n",
+    )
+    .unwrap();
+    let report = audit::run_audit_report(&unsafe_project.to_string_lossy(), "md").unwrap();
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|finding| finding.category == "Hardcoded Secret")
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|finding| finding.category == "Stack Source Risk")
+    );
+    let _ = fs::remove_dir_all(&unsafe_project);
+}
+
+#[test]
 fn test_audit_validates_formats_and_reports_scopes() {
     let dir = temp_project("audit-contract");
     fs::create_dir_all(dir.join("frontend/src")).unwrap();
