@@ -191,12 +191,17 @@ pub fn exit_status(report: &Report) -> i32 {
     0
 }
 
+/// Recorded on the install gate when `--no-install` skips it.
+pub const SKIP_INSTALL_REASON: &str = "skipped by --no-install";
+
 /// How the `verify` command was invoked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
     pub path: PathBuf,
     pub only: Option<Gate>,
     pub security: bool,
+    /// Leave the install gate alone and run everything else.
+    pub skip_install: bool,
 }
 
 impl Default for Options {
@@ -205,6 +210,7 @@ impl Default for Options {
             path: PathBuf::from("."),
             only: None,
             security: false,
+            skip_install: false,
         }
     }
 }
@@ -220,6 +226,10 @@ impl Options {
             match token {
                 "--security" => {
                     options.security = true;
+                    index += 1;
+                }
+                "--no-install" => {
+                    options.skip_install = true;
                     index += 1;
                 }
                 "--only" => {
@@ -246,6 +256,9 @@ impl Options {
         if options.only == Some(Gate::Security) {
             options.security = true;
         }
+        if options.skip_install && options.only == Some(Gate::Install) {
+            return Err("--no-install cannot be combined with --only install".to_string());
+        }
         Ok(options)
     }
 }
@@ -262,10 +275,20 @@ pub fn run(root: &Path, options: &Options, runner: Runner<'_>) -> Result<Report,
     if !root.is_dir() {
         return Err(format!("{} is not a directory", root.display()));
     }
-    let plans = detect::plan(
+    let mut plans = detect::plan(
         root,
         options.security || options.only == Some(Gate::Security),
     );
+    if options.skip_install {
+        for part in &mut plans {
+            for gate in &mut part.gates {
+                if gate.gate == Gate::Install {
+                    gate.commands.clear();
+                    gate.not_applicable = Some(SKIP_INSTALL_REASON.to_string());
+                }
+            }
+        }
+    }
     if let Some(only) = options.only {
         let applies = plans.iter().any(|part| {
             part.gates

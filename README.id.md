@@ -7,7 +7,7 @@
 
 CLI Rust untuk scaffold proyek, membaca isi codebase yang sudah ada, dan mengauditnya
 untuk risiko keamanan. Semua berjalan lokal: tanpa akun, tanpa API key, tanpa layanan
-AI. README bahasa Indonesia: [README.id.md](README.id.md).
+AI. README versi Inggris: [README.md](README.md).
 
 ## Install
 
@@ -39,11 +39,14 @@ Bisa diubah lewat `SNIPE_INSTALL_VERSION`, `SNIPE_INSTALL_DIR`, dan
 ### cargo install (punya Rust toolchain)
 
 ```bash
-cargo install snipe-code
+cargo install snipe-code --locked
 ```
 
 Memasang crate versi rilis dari crates.io ke `~/.cargo/bin`. Butuh Rust toolchain,
-jadi ini bukan jalur "no Rust toolchain" di atas.
+jadi ini bukan jalur "no Rust toolchain" di atas. Flag `--locked` tetap wajib di sini:
+paket yang dipublikasikan membawa `Cargo.lock`-nya, dan tanpa flag itu Cargo
+menyelesaikan dependency graph ulang, bertemu rilis `zip` yang dibutuhkan `docx-rs`
+(semuanya sudah yanked di upstream), lalu berhenti tanpa memilih versi.
 
 ### Image container (Linux)
 
@@ -68,6 +71,35 @@ Binary ada di `target/release/snipe-code` (`.exe` di Windows) dan portable, bisa
 disalin ke mana saja. Folder `target/` bisa ratusan MB; setelah binary disalin keluar,
 bersihkan dengan `cargo clean`.
 
+Cargo tidak menaruh binary itu di `PATH`, jadi mengetik `snipe-code` di shell baru
+tetap gagal dengan `'snipe-code' is not recognized as an internal or external command`.
+Jalankan lewat path-nya dari folder checkout:
+
+```powershell
+.\target\release\snipe-code.exe faq
+```
+
+```bash
+./target/release/snipe-code faq
+```
+
+`cargo run --release -- faq` melakukan hal yang sama tanpa keluar dari source. Kalau
+mau `snipe-code` bisa dipanggil dari direktori mana pun, install hasil build lokal:
+
+```bash
+cargo install --path . --locked
+```
+
+Perintah itu menyalin binary ke `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin` di
+Windows), yang sudah ditambahkan ke `PATH` oleh installer Rust, jadi shell baru
+langsung mengenali `snipe-code`. Kalau masih tidak dikenali, tambahkan sendiri
+direktori itu ke `PATH`. Flag `--locked` wajib di sini: `cargo install --path .` tanpa
+flag itu menyelesaikan dependency ulang, menemukan rilis `zip` yang dibutuhkan
+`docx-rs` sudah yanked di upstream, lalu berhenti dengan
+`failed to select a version for the requirement`. Dengan `--locked`, resolusi memakai
+`Cargo.lock` repo dan install berhasil. Sama seperti `cargo install` lain, ini cuma menyalin sekali: jalankan ulang
+setelah mengubah kode, atau tetap pakai `cargo run`.
+
 ### Uninstall
 
 Hapus binary yang dipasang installer, atau `cargo uninstall snipe-code` kalau dipasang
@@ -85,6 +117,29 @@ lewat cargo. Tidak ada registry key atau file sistem yang disentuh.
 | `snipe-code help [command]` | Bantuan umum dan per perintah |
 | `snipe-code faq` | Install, uninstall, troubleshooting |
 
+### Setiap command dijalankan dari mana dan menulis apa
+
+| Command | Dijalankan dari | Dibaca | Ditulis | Exit code |
+| --- | --- | --- | --- | --- |
+| `new` (atau tanpa argumen) | direktori yang nanti memuat proyek baru. Proyeknya dibuat di `<direktori saat ini>/<nama>`, jadi `cd` dulu ke folder induknya. Argumen path tidak memindahkannya. | template yang tertanam di binary, atau `SNIPE_CODE_TEMPLATES` | `<direktori saat ini>/<nama>/`, lalu `git init` dan initial commit di dalamnya | `0` berhasil, `1` generate gagal, `2` usage error, `3` error runtime |
+| `analyze [PATH]` | mana saja; `PATH` default direktori saat ini | file proyek | tidak ada | `0`, `2`, `3` |
+| `audit [PATH]` | mana saja; `PATH` default direktori saat ini | file proyek | `Audit_Report.md`, `.pdf`, `.docx` di dalam `PATH` | `0`, `1`, `2`, `3` |
+| `verify [PATH]` | direktori proyeknya, atau arahkan `PATH` ke sana | manifest | tidak ada dari snipe-code sendiri; gate yang dijalankannya menulis ke dalam proyek | `0`, `1`, `2`, `3` |
+| `help`, `version`, `faq` | mana saja | tidak ada | tidak ada | `0` |
+
+Dua command berikut mengubah file di disk:
+
+- `audit` menulis laporannya ke dalam direktori yang di-scan, bersebelahan dengan kode.
+  Tanpa terminal, prompt format dilewati dan langsung export Markdown, dengan pesan
+  `Terminal non-interaktif — default export: markdown.` dicetak lebih dulu, jadi
+  perintahnya tetap jalan apa adanya di script.
+- `verify` bukan read-only. Gate-nya adalah perintah milik proyek itu sendiri, jadi
+  `npm install` meninggalkan `node_modules/` dan `package-lock.json`, `go mod tidy`
+  menulis ulang `go.mod` dan menambah `go.sum`, `dotnet restore` meninggalkan `obj/`,
+  dan Maven meninggalkan `target/`. Tidak ada yang dihapus, tapi isi foldernya tidak
+  sama lagi sesudahnya. Pakai `--no-install` untuk melewati gate install dan memakai
+  dependency yang sudah ada di disk.
+
 ## new: scaffold proyek
 
 ```bash
@@ -98,6 +153,10 @@ Alur wizard: template, frontend, backend, database, nama proyek, prompt tabrakan
 folder (Overwrite atau Cancel), generate, CI/CD, Docker, AI workspace, lalu
 `git init` dan initial commit.
 
+Direktori proyeknya dibuat di `<direktori saat ini>/<nama>`, jadi jalankan wizard dari
+folder yang memang harus memuatnya. Namanya datang dari prompt atau `--name`; tidak ada
+argumen yang memindahkan outputnya.
+
 | Flag | Efek |
 | --- | --- |
 | `--dry-run` | Cetak struktur tanpa membuat file |
@@ -106,7 +165,8 @@ folder (Overwrite atau Cancel), generate, CI/CD, Docker, AI workspace, lalu
 | `--json` | Hasil generate (`project`, `ai_tools`, `ai_artifacts`, `ai_overlaps`, `files`, `outcome`) sebagai JSON di stdout, progress ke stderr |
 
 Tanpa terminal (script atau CI) wizard memakai nilai default dan tidak pernah
-bertanya, jadi pakai `--name` supaya nama proyeknya jelas.
+bertanya: template none, frontend Next.js, backend none, database none, nama proyek
+`my-project`. Pakai `--name` supaya nama proyeknya jelas.
 
 Stack yang didukung, frontend: Next.js, React (Vite), Vue, Nuxt. Backend: .NET 8,
 NestJS, Go (Gin), Spring Boot, Laravel 12. Database: PostgreSQL, MySQL. Proyek hasil
@@ -162,6 +222,10 @@ Format yang valid: `md`, `pdf`, `docx`. Duplikat dinormalisasi, token kosong ata
 tidak dikenal jadi usage error. Dengan `--json` file laporan tetap ditulis, sedangkan
 ringkasan "exported files" pindah ke stderr supaya stdout bisa di-parse.
 
+Tiap format ditulis ke dalam direktori yang di-scan sebagai `Audit_Report.md`,
+`Audit_Report.pdf`, dan `Audit_Report.docx`. Ketiga nama itu ada di `.gitignore` proyek
+hasil generate, jadi laporannya tidak ikut ke-commit tanpa sengaja.
+
 Exit code:
 
 - `0`: audit selesai, tidak ada temuan HIGH
@@ -179,6 +243,7 @@ bukan bukti proyek aman.
 snipe-code verify .                        # semua gate yang dideklarasikan
 snipe-code verify ../proyek --only test     # ulangi satu gate
 snipe-code verify . --security              # tambah gate kerentanan dependency
+snipe-code verify . --no-install            # lewati gate install
 ```
 
 Gate diturunkan dari manifest proyek, bukan dari daftar stack tool ini, jadi
@@ -216,6 +281,15 @@ seperti CI proyek itu. Tool `snipe-code` sendiri tidak pernah memanggil jaringan
 hanya menjalankan perintah yang sudah dideklarasikan proyek dan mencetak tiap
 perintah sebelum dijalankan. Untuk analisis read-only yang sepenuhnya offline, pakai
 `snipe-code analyze` atau `snipe-code audit`.
+
+Perintah-perintah itu juga menulis di dalam proyek: `node_modules/` dan
+`package-lock.json` dari `npm install`, `go.sum` plus `go.mod` yang dirapikan
+`go mod tidy`, `obj/` dari `dotnet restore`, `target/` dari Maven. Jadi satu kali
+`verify` meninggalkan folder yang isinya tidak sama lagi, dan tidak ada yang dihapus.
+`--no-install` melewati gate install, melaporkannya sebagai `not-applicable` dengan
+alasan `skipped by --no-install`, dan tetap menjalankan gate lain. Itu yang kamu mau
+kalau dependency sudah terpasang. Menggabungkan `--no-install` dengan
+`--only install` adalah usage error, karena meminta gate itu sekaligus melewatinya.
 
 `--security` memakai scanner bawaan ekosistem: `npm audit`, `composer audit`,
 `dotnet list package --vulnerable`. Go dan Java melaporkan gate ini `not-applicable`
@@ -363,7 +437,7 @@ cosign verify-blob --bundle snipe-code-<version>-<target>.tar.gz.bundle \
 ```
 
 Jalankan itu hanya untuk artifact yang benar-benar ada di halaman GitHub Releases.
-Job rilis yang sama juga mempublikasikan crate-nya, jadi `cargo install snipe-code`
+Job rilis yang sama juga mempublikasikan crate-nya, jadi `cargo install snipe-code --locked`
 memasang versi yang sama dengan yang dirilis.
 
 ## CI

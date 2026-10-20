@@ -67,6 +67,38 @@ fn test_gitignore_no_duplicate_vendor() {
     let content = fs::read_to_string("app/.gitignore").unwrap();
     let count = content.lines().filter(|l| l.trim() == "vendor/").count();
     assert_eq!(count, 1, "vendor/ must appear exactly once, got {}", count);
+    for expected in [
+        "node_modules/",
+        "bin/",
+        "obj/",
+        "Audit_Report.md",
+        "Audit_Report.pdf",
+        "Audit_Report.docx",
+    ] {
+        assert!(
+            content.contains(expected),
+            "generated .gitignore must ignore {expected}:\n{content}"
+        );
+    }
+}
+
+#[test]
+fn test_gitignore_ignores_verify_and_audit_output() {
+    let _ws = common::Workspace::new("bf-gi-out");
+    let config = GenerateConfig {
+        project_name: "app".to_string(),
+        template_id: "none".to_string(),
+        frontend: "none".to_string(),
+        backend: "dotnet8".to_string(),
+        database: "none".to_string(),
+        ai_tools: Vec::new(),
+    };
+    generator::generate(&config, false).unwrap();
+    let content = fs::read_to_string("app/.gitignore").unwrap();
+    assert!(
+        content.contains("obj/") && content.contains("bin/"),
+        "a .NET project must ignore its build output:\n{content}"
+    );
 }
 
 #[test]

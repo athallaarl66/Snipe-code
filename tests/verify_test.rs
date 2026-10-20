@@ -241,6 +241,7 @@ fn unrecognized_directory_has_no_gates_and_nothing_executes() {
         path: fixture.path().to_path_buf(),
         only: None,
         security: false,
+        skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let report =
@@ -261,6 +262,7 @@ fn gate_states_are_recorded_in_the_fixed_order() {
         path: fixture.path().to_path_buf(),
         only: None,
         security: false,
+        skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let report = verify::run(
@@ -312,6 +314,7 @@ fn unavailable_gate_is_reported_but_only_blocks_success_when_nothing_ran() {
         path: fixture.path().to_path_buf(),
         only: None,
         security: false,
+        skip_install: false,
     };
 
     // A missing npm means nothing ran at all, which is not success.
@@ -331,6 +334,7 @@ fn unavailable_gate_is_reported_but_only_blocks_success_when_nothing_ran() {
         path: fixture.path().to_path_buf(),
         only: None,
         security: false,
+        skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let report = verify::run(
@@ -361,6 +365,7 @@ fn only_selector_restricts_the_run_and_rejects_a_gate_that_does_not_apply() {
         path: fixture.path().to_path_buf(),
         only: Some(Gate::Test),
         security: false,
+        skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let report =
@@ -376,6 +381,7 @@ fn only_selector_restricts_the_run_and_rejects_a_gate_that_does_not_apply() {
         path: fixture.path().to_path_buf(),
         only: Some(Gate::Build),
         security: false,
+        skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let error = verify::run(fixture.path(), &rejected, &fake_runner(&seen, None, None))
@@ -441,6 +447,7 @@ fn failing_scan_fails_the_run_and_the_gate_is_absent_unless_requested() {
         path: fixture.path().to_path_buf(),
         only: None,
         security: false,
+        skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let report = verify::run(
@@ -461,6 +468,7 @@ fn failing_scan_fails_the_run_and_the_gate_is_absent_unless_requested() {
         path: fixture.path().to_path_buf(),
         only: Some(Gate::Security),
         security: true,
+        skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let report = verify::run(
@@ -485,6 +493,7 @@ fn passing_scan_passes_the_gate() {
         path: fixture.path().to_path_buf(),
         only: None,
         security: true,
+        skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let report =
@@ -505,6 +514,7 @@ fn options_parse_path_selectors_and_usage_errors() {
     assert_eq!(none.path, PathBuf::from("."));
     assert_eq!(none.only, None);
     assert!(!none.security);
+    assert!(!none.skip_install);
 
     let full = Options::parse(&[
         "..".to_string(),
@@ -544,9 +554,61 @@ fn missing_directory_is_a_usage_error() {
         path: PathBuf::from("snipe-code-no-such-directory"),
         only: None,
         security: false,
+        skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let error = verify::run(&options.path, &options, &fake_runner(&seen, None, None))
         .expect_err("missing path");
     assert!(error.contains("not a directory"), "{error}");
+}
+
+#[test]
+fn no_install_skips_the_install_gate_and_runs_the_rest() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "package.json",
+        r#"{"name":"app","scripts":{"test":"vitest run"}}"#,
+    );
+    let options = Options {
+        path: fixture.path().to_path_buf(),
+        only: None,
+        security: false,
+        skip_install: true,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let report =
+        verify::run(fixture.path(), &options, &fake_runner(&seen, None, None)).expect("run");
+
+    let install = report.parts[0]
+        .outcomes
+        .iter()
+        .find(|outcome| outcome.gate == Gate::Install)
+        .expect("install outcome");
+    assert_eq!(install.state.name(), "not-applicable");
+    assert_eq!(
+        install.state.detail(),
+        Some(verify::SKIP_INSTALL_REASON),
+        "the reason must say the flag skipped it"
+    );
+    assert_eq!(
+        seen.borrow().as_slice(),
+        ["npm run test"],
+        "the install command must not run, the declared script still must"
+    );
+    assert_eq!(verify::exit_status(&report), 0);
+}
+
+#[test]
+fn no_install_with_only_install_is_a_usage_error() {
+    let error = Options::parse(&[
+        "--no-install".to_string(),
+        "--only".to_string(),
+        "install".to_string(),
+    ])
+    .expect_err("contradiction must be rejected");
+    assert!(error.contains("--no-install"), "{error}");
+
+    let flag_only = Options::parse(&["--no-install".to_string()]).expect("parse");
+    assert!(flag_only.skip_install);
+    assert_eq!(flag_only.only, None);
 }

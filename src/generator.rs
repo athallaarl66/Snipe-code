@@ -396,6 +396,13 @@ Thumbs.db
 dist/
 build/
 out/
+bin/
+obj/
+
+# Audit reports written by 'snipe-code audit .'
+Audit_Report.md
+Audit_Report.pdf
+Audit_Report.docx
 "#
 }
 
