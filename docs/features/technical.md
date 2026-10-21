@@ -1,736 +1,362 @@
-# Technical Design Document (TDD)
+# Technical Design Document
 
 ## Document Information
-- **Document Version**: 1.0
-- **Created Date**: 2026-07-28
-- **Last Updated**: 2026-07-28
-- **Author**: SNIPE-CODE Team
-- **Project**: SNIPE-CODE CLI
-- **Feature**: Enterprise Preset Templates
-- **PRD Reference**: `docs/features/SNIPE-PRD.md`
+
+- Version: 2.0
+- Created: 2026-07-28
+- Last updated: 2026-10-21
+- Applies to: `snipe-code` 0.5.3
+- Product requirements: `docs/features/SNIPE-PRD.md`
+
+This document describes the code that exists. Where version 1.0 described a planned
+structure, the sections below replace it with the current modules, template layout, and
+workflow. Anything still unimplemented is listed in section 13 instead of being written
+as if it shipped.
 
 ---
 
-## 1. System Architecture
+## 1. Modules
 
-### 1.1 High-Level Architecture
+`src/` is a library (`snipe_code`) plus a binary, so tests call the generator, audit, and
+verifier directly instead of shelling out.
 
-```mermaid
-graph TB
-    subgraph "CLI Layer"
-        A[CLI Entry Point] --> B[Template Selector]
-        B --> C[Stack Selection]
-        C --> D[Config Prompt]
-        D --> E[Structure Generator]
-        E --> F[Git Automator]
-    end
+| Module | Responsibility |
+| --- | --- |
+| `src/main.rs` | Manual argument dispatch, `HELP_TEXT`, `FAQ_TEXT`, and per-command help constants, exit codes. No CLI framework. |
+| `src/commands/new.rs` | Wizard: template, frontend, backend, database, project name, AI tools, collision prompt, dry run, JSON output. |
+| `src/template.rs` | Embeds `templates/` with `include_dir!`, resolves per-file overrides, parses `presets/<id>/preset.json`. |
+| `src/stack.rs` | Frontend and backend registries read from `templates/*/manifest.txt`, database list, database URL placeholders, selection validation. |
+| `src/generator.rs` | Staging directory, validation, publish with a backup swap, `.env.example` / `.gitignore` / project `README.md` bodies, dry-run tree, `declared_scripts`. |
+| `src/cicd.rs` | Generated `.github/workflows/main.yml`. |
+| `src/docker.rs` | Generated `docker-compose.yml`. |
+| `src/git.rs` | Best-effort `git init` and initial commit. |
+| `src/audit.rs` | Shared file traversal, six heuristic checks, Markdown / PDF / DOCX export. |
+| `src/analyze/mod.rs` | Read-only language, structure, entry point, and dependency report. |
+| `src/verify/mod.rs`, `detect.rs`, `exec.rs` | Gate model, manifest-driven gate detection, command runner. |
+| `src/ai_tools.rs` | AI tool registry (`templates/ai-tools.json`), artifact planning, format renderers. |
+| `src/ai_workspace.rs` | Writes the planned AI artifacts into a generated project. |
+| `src/date.rs` | Report date helper. |
 
-    subgraph "Core Engine"
-        G[Template Registry] --> H[Template Loader]
-        H --> I[File Generator]
-        I --> J[Folder Creator]
-    end
+Dependencies stay small on purpose: `serde`, `serde_json`, `dialoguer`, `console`,
+`printpdf`, `docx-rs`, `include_dir`. No async runtime, no network client, no template
+engine.
 
-    subgraph "Security Layer"
-        K[Security Config Generator] --> L[.env.example]
-        K --> M[CORS/Helmet Config]
-        K --> N[.gitignore]
-    end
-
-    subgraph "External"
-        O[Git CLI]
-        P[GitHub Actions]
-    end
-
-    A --> G
-    E --> K
-    F --> O
-    F --> P
-```
-
-### 1.2 Module Dependency Graph
-
-```mermaid
-graph LR
-    subgraph "snipecode-core"
-        A[main] --> B[commands::new]
-        B --> C[template::registry]
-        B --> D[stack::selector]
-        B --> E[generator::engine]
-        B --> F[git::automator]
-    end
-
-    subgraph "CLI Interaction"
-        G[dialoguer] --> B
-    end
-
-    subgraph "Serialization"
-        H[serde] --> C
-        I[serde_json] --> C
-    end
-
-    subgraph "File I/O"
-        J[std::fs] --> E
-        K[tempfile] --> E
-    end
-```
-
-### 1.3 Request Flow Diagram
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant CLI as snipe-code CLI
-    participant TS as Template Selector
-    participant SS as Stack Selector
-    participant SG as Structure Generator
-    participant GA as Git Automator
-    participant FS as FileSystem
-
-    U->>CLI: snipe-code new
-    CLI->>TS: load_templates()
-    TS-->>U: display template list
-    U->>TS: select_template()
-    TS-->>CLI: selected_template
-
-    CLI->>SS: load_stack_options()
-    SS-->>U: display stack choices
-    U->>SS: select_stack()
-    SS-->>CLI: {frontend, backend, database}
-
-    CLI->>CLI: prompt_config(docker, name)
-    CLI-->>U: prompt answers
-
-    CLI->>SG: generate(template, stack, config)
-    SG->>FS: create_dirs(structure)
-    SG->>FS: create_files(templates)
-    SG->>FS: create_security_config()
-    SG-->>CLI: generation_report
-
-    CLI->>GA: init_git()
-    GA->>FS: git_init()
-    GA->>FS: create_gitignore()
-    GA->>FS: create_ci_cd()
-    GA->>FS: initial_commit()
-    GA-->>CLI: git_report
-
-    CLI-->>U: "Project created! ✔"
-```
+`src/bin/verify-generated.rs` and `src/bin/verify-compose.rs` are CI binaries. They
+generate a project in a temporary directory and drive the same code paths as the CLI, so
+CI exercises the real generator rather than a copy of it.
 
 ---
 
-## 2. Module Design
+## 2. Template sources
 
-### 2.1 Template Registry
+Every stack and preset is data on disk, embedded into the binary at build time:
 
-```rust
-// Template definition structure
-struct Template {
-    id: String,
-    name: String,
-    description: String,
-    icon: String,
-    structure: TemplateStructure,
-}
-
-struct TemplateStructure {
-    folders: Vec<FolderDef>,
-    files: Vec<FileDef>,
-    rules: GenerationRules,
-}
-
-struct FolderDef {
-    path: String,        // "dashboard/components/"
-    condition: Option<String>, // "stack_frontend == 'nextjs'"
-}
-
-struct FileDef {
-    path: String,
-    template_source: String, // embedded path or content
-    condition: Option<String>,
-}
-
-struct GenerationRules {
-    require_backend: bool,
-    require_database: bool,
-    docker_compose: bool,
-    security_configs: bool,
-}
+```
+templates/
+├── frontends/<id>/          nextjs, react-vite, vue, nuxtjs
+│   ├── manifest.txt         name=..., init=..., install=...
+│   ├── folders.txt          one folder path per line
+│   └── files/<path>         file body written at the same relative path
+├── backends/<id>/           dotnet8, nestjs, go-gin, spring-boot, laravel
+│   └── manifest.txt, folders.txt, files/<path>
+├── presets/<id>/            none, company-profile, portfolio, blog
+│   ├── preset.json          folders, files, rules
+│   └── content/<source>.txt preset file bodies, one `{}` placeholder for the date
+└── ai-tools.json            AI tool registry
 ```
 
-### 2.2 Template Definitions (JSON)
+`manifest.txt` supplies the display name, an optional init command, and the install
+command the verifier and generated CI use. `folders.txt` is a flat list: no per-folder
+conditions, because the generator writes every folder listed for the selected stack.
 
-```json
-{
-  "templates": [
-    {
-      "id": "none",
-      "name": "No Template — Clean Start",
-      "description": "Stack-only structure, no template files",
-      "icon": "📋"
-    },
-    {
-      "id": "iot-dashboard",
-      "name": "Industrial IoT Dashboard",
-      "description": "Real-time monitoring dashboard with WebSocket",
-      "icon": "📊",
-      "structure": {
-        "folders": [
-          "frontend/src/components/charts/",
-          "frontend/src/components/layout/dashboard-sidebar/",
-          "frontend/src/hooks/useWebSocket/",
-          "frontend/src/pages/dashboard/",
-          "backend/src/controllers/sensor/",
-          "backend/src/services/mqtt/",
-          "backend/src/websocket/"
-        ],
-        "docker_compose": ["mqtt-broker", "timescaledb"]
-      }
-    },
-    {
-      "id": "company-profile",
-      "name": "Company Profile",
-      "description": "Professional company website with SEO",
-      "icon": "🏢"
-    },
-    {
-      "id": "portfolio",
-      "name": "Portfolio",
-      "description": "Personal portfolio with project showcase",
-      "icon": "💼"
-    },
-    {
-      "id": "blog",
-      "name": "Blog / Posts",
-      "description": "Content management with MDX support",
-      "icon": "📝"
-    }
-  ]
-}
-```
+Adding a stack is a directory plus an id in `FRONTEND_IDS` or `BACKEND_IDS` in
+`src/stack.rs`. Adding a preset is a `preset.json` with its content files;
+`TemplateRegistry::load_all()` picks it up with no other Rust change.
 
-### 2.3 Stack Configurations
-
-```json
-{
-  "frontend": {
-    "nextjs": { "name": "Next.js", "package_json": true, "tsconfig": true },
-    "react-vite": { "name": "React (Vite)", "vite_config": true },
-    "vue": { "name": "Vue", "vite_config": true },
-    "nuxtjs": { "name": "Nuxt.js", "nuxt_config": true }
-  },
-  "backend": {
-    "dotnet8": { "name": ".NET 8", "csproj": true },
-    "nestjs": { "name": "NestJS", "tsconfig": true },
-    "go-gin": { "name": "Go (Gin)", "go_mod": true },
-    "spring-boot": { "name": "Spring Boot", "pom_xml": true },
-    "laravel": { "name": "Laravel", "composer_json": true }
-  },
-  "database": {
-    "postgresql": { "name": "PostgreSQL", "driver": "sqlx" },
-    "mysql": { "name": "MySQL", "driver": "sqlx" }
-  }
-}
-```
+Resolution is per file. `SNIPE_CODE_TEMPLATES` points at an override directory laid out
+like `templates/`; a file present there wins, a file absent falls back to the embedded
+copy, so a partial override is valid. The `new` output prints the source it used as
+`Templates: built-in templates` or `Templates: local templates from <dir>`.
 
 ---
 
-## 3. CLI Interface Design
+## 3. Presets
 
-### 3.1 Command Structure
+| id | Name | Folders | Files |
+| --- | --- | --- | --- |
+| `none` | No Template, clean start | none | none |
+| `company-profile` | Company Profile | 7 page and layout folders | none |
+| `portfolio` | Portfolio | 6 section folders | `frontend/src/data/projects.json` |
+| `blog` | Blog / Posts | 6 post, category, tag, and component folders | `frontend/src/posts/hello-world.mdx`, `frontend/public/rss.xml` |
 
-```
-snipe-code new              # Interactive mode
-snipe-code new --dry-run    # Preview only
-snipe-code new --template <id>  # Skip template prompt
-snipe-code new --quiet      # Skip all prompts, use defaults
-snipe-code new --frontend nextjs --backend nestjs --name my-app  # Full CLI args
-```
+`preset.json` carries `rules` (`require_backend`, `require_database`,
+`docker_compose`, `security_configs`). The blog `rss.xml` is a fixed sample that points
+at `http://localhost:3000`; nothing regenerates it when a post is added.
 
-### 3.2 Interactive Flow
-
-```mermaid
-graph TD
-    Start[new] --> T[Select Template]
-    T --> T1{Template Selected?}
-    T1 -->|No Template| F[Select Frontend]
-    T1 -->|With Template| F
-    F --> F1[Select Backend]
-    F1 --> F2[Select Database]
-    F2 --> F3[Project Name]
-    F3 --> F4{Use Docker?}
-    F4 -->|Yes| Gen[Generate + Docker]
-    F4 -->|No| Gen2[Generate]
-    Gen --> Git[Git Init]
-    Gen2 --> Git
-    Git --> Done[Done]
-```
-
-### 3.3 Error Handling
-
-```
-Error: Target folder "my-project" already exists
-  Overwrite?  (y/n)
-  └─ Yes: remove existing folder and regenerate
-  └─ No: cancel, no changes
-
-Error: No stack selected
-  └─ Warning: "Select at least Frontend or Backend"
-
-Error: Git not installed
-  └─ Warning: "Git not found. Skipping git init. Install git for full experience."
-```
+The IoT dashboard preset appears in the PRD as a plan. It has no `preset.json` and the
+wizard never offers it.
 
 ---
 
-## 4. Security Design
+## 4. CLI surface
 
-### 4.1 Generated Security Configs
-
-| Config | Description |
-|--------|-------------|
-| `.env.example` | All secrets with placeholder values, no defaults |
-| `.gitignore` | Excludes `.env`, `*.pem`, `node_modules/`, `target/` |
-| `cors.config` | Restrictive CORS for backend frameworks |
-| `helmet` (Node) | Security headers for NestJS/Express |
-| Rate limiter | Basic rate limit config for API routes |
-
-### 4.2 Secure Generation Rules
-
-```rust
-// Security rules applied to every template
-const SECURITY_RULES: SecurityConfig = SecurityConfig {
-    no_hardcoded_secrets: true,
-    env_placeholder: true,
-    sql_injection_protection: true,  // parameterized queries
-    xss_protection: true,            // input sanitization
-    cors_config: true,
-    helmet_config: true,             // Node.js only
-    gitignore_secure: true,
-};
+```
+snipe-code                                  wizard
+snipe-code new [--dry-run] [--json]
+               [--template <id>] [--frontend <id>] [--backend <id>]
+               [--database <id>] [--name <n>] [--ai-tools <ids|none>]
+snipe-code analyze [PATH] [--json]
+snipe-code audit [PATH] [--export <md,pdf,docx>] [--json]
+snipe-code verify [PATH] [--only <gate>] [--security] [--no-install]
+snipe-code help [command]
+snipe-code version
+snipe-code faq
 ```
 
-### 4.3 .env.example Template
+Exit codes: `0` success, `1` a HIGH audit finding or a failed gate, `2` usage error,
+`3` runtime or export failure.
 
-```env
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/mydb
+A supplied selection value skips only its own prompt. Without a terminal the wizard
+prompts nothing and uses template `none`, frontend `nextjs`, backend `none`, database
+`none`, no AI tools, and project name `my-project`. Asking for `--frontend none
+--backend none` is a usage error, because a project needs at least one part.
 
-# API
-API_PORT=3000
-API_SECRET=your-secret-here
+The frontend, backend, database, and template values are validated against the
+registries before anything is written, so an unknown id exits 2 and creates no
+directory. A positional path argument is rejected as an unknown argument rather than
+silently ignored.
 
-# Security
-CORS_ORIGIN=http://localhost:3000
-RATE_LIMIT_WINDOW=60000
-RATE_LIMIT_MAX=100
-
-# [GENERATED BY SNIPE-CODE CLI]
-```
+The project is always created at `<current directory>/<name>`.
 
 ---
 
-## 5. Folder Structure — Generated Output
+## 5. Generation flow
 
-### 5.1 No Template + Next.js + NestJS + PostgreSQL
+1. Resolve the selection and validate it.
+2. Resolve the destination and check for an existing folder.
+3. Build the AI artifact plan, so an unknown tool id fails before any write.
+4. Generate into a staging directory beside the destination.
+5. Validate the staged tree.
+6. Publish. A new destination is renamed into place. An existing destination is moved to
+   a unique sibling backup first and removed only after the swap succeeds; a failed
+   publish restores the backup and reports where it is.
+7. Write `docker-compose.yml` when both a backend and a database were selected, then the
+   CI workflow, `.ai-workspace/rules.md` plus `rules.mdc`, the selected AI artifacts, and
+   finally `git init` with an initial commit when git is available.
 
-```
-my-project/
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── ui/
-│   │   │   └── layout/
-│   │   ├── pages/
-│   │   ├── hooks/
-│   │   ├── lib/
-│   │   └── styles/
-│   ├── .env.local.example
-│   ├── next.config.js
-│   ├── tsconfig.json
-│   └── package.json
-├── backend/
-│   ├── src/
-│   │   ├── controllers/
-│   │   ├── services/
-│   │   ├── repositories/
-│   │   ├── middleware/
-│   │   ├── routes/
-│   │   ├── models/
-│   │   └── utils/
-│   ├── .env.example
-│   ├── tsconfig.json
-│   ├── nest-cli.json
-│   └── package.json
-├── docker-compose.yml
-├── .env.example
-├── .gitignore
-├── README.md
-└── .github/
-    └── workflows/
-        └── main.yml
-```
+Step 7 sits outside the atomic publish on purpose. Git is best effort, so a missing git
+binary prints a warning instead of failing a project that was generated successfully.
 
-### 5.2 IoT Dashboard Template
+Collision handling has two outcomes. Interactively the prompt offers
+`Overwrite (replace existing)` and `Cancel`, with Cancel preselected. Without a terminal
+the run fails with `Error: Folder "<path>" already exists`, because a scripted run has
+nobody to answer the prompt.
 
-```
-my-project/
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── ui/
-│   │   │   ├── layout/
-│   │   │   │   └── dashboard-sidebar/
-│   │   │   └── charts/
-│   │   │       ├── LineChart/
-│   │   │       ├── GaugeChart/
-│   │   │       └── AlertPanel/
-│   │   ├── pages/
-│   │   │   └── dashboard/
-│   │   ├── hooks/
-│   │   │   └── useWebSocket/
-│   │   ├── lib/
-│   │   └── styles/
-│   └── ...
-├── backend/
-│   ├── src/
-│   │   ├── controllers/
-│   │   │   └── sensor/
-│   │   ├── services/
-│   │   │   └── mqtt/
-│   │   ├── websocket/
-│   │   ├── repositories/
-│   │   ├── models/
-│   │   └── middleware/
-│   └── ...
-├── docker-compose.yml  # MQTT + TimescaleDB
-├── .env.example
-├── .gitignore
-└── README.md
-```
+Generated files every project receives:
 
-### 5.3 Portfolio Template
-
-```
-my-project/
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── ui/
-│   │   │   ├── layout/
-│   │   │   └── sections/
-│   │   │       ├── hero/
-│   │   │       ├── projects-grid/
-│   │   │       ├── skills/
-│   │   │       ├── experience/
-│   │   │       └── contact/
-│   │   ├── pages/
-│   │   ├── hooks/
-│   │   ├── data/
-│   │   │   └── projects.json
-│   │   └── styles/
-│   └── ...
-├── .env.example
-├── .gitignore
-└── README.md
-```
-
-### 5.4 Blog Template
-
-```
-my-project/
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── ui/
-│   │   │   ├── layout/
-│   │   │   └── blog/
-│   │   │       ├── post-card/
-│   │   │       ├── post-content/
-│   │   │       └── author-page/
-│   │   ├── pages/
-│   │   ├── posts/          # MDX content
-│   │   ├── categories/
-│   │   ├── tags/
-│   │   ├── hooks/
-│   │   └── styles/
-│   └── ...
-├── backend/                  # optional
-│   ├── src/
-│   │   ├── controllers/
-│   │   ├── services/
-│   │   ├── repositories/
-│   │   └── models/
-│   └── ...
-├── .env.example
-├── .gitignore
-└── README.md
-```
+- `.env.example`, with the database URL placeholder for the selected database and no real
+  secret. The body is `DATABASE_URL` plus `API_PORT`, `API_SECRET`, `CORS_ORIGIN`,
+  `RATE_LIMIT_WINDOW`, and `RATE_LIMIT_MAX`.
+- `.gitignore`, covering dependency, environment, IDE, OS, and build output directories,
+  plus the three `Audit_Report.*` names.
+- `README.md`, naming the selected stacks with their install and run commands.
+- `.github/workflows/main.yml`, described in section 6.
+- `docker-compose.yml`, with a PostgreSQL or MySQL service for the selected database.
+- `.ai-workspace/rules.md` and `.ai-workspace/rules.mdc`, always.
 
 ---
 
-## 6. CI/CD Pipeline Design
+## 6. Generated CI workflow
 
-### 6.1 Generated `.github/workflows/main.yml`
+The workflow runs one job per part:
 
-```mermaid
-graph LR
-    A[Push/PR] --> B[Lint]
-    B --> C[Test]
-    C --> D[Build]
-    D --> E[Deploy]
-```
+| Part | Jobs and commands |
+| --- | --- |
+| npm frontend | `npm install` on Node 24, then the declared `typecheck`, `lint`, `test`, `build` scripts |
+| NestJS backend | `npm install` on Node 24, then the declared scripts |
+| Go backend | Go 1.21: `go mod tidy`, `go test ./...`, `go vet ./...`, `go build ./...` |
+| Spring Boot backend | Java 17: `mvn test package` |
+| .NET backend | .NET `8.0.x`: `dotnet restore`, `dotnet test --no-restore`, `dotnet build --no-restore` |
+| Laravel backend | PHP 8.2: `composer install`, `php artisan test` |
 
-### 6.2 Pipeline Config
-
-```yaml
-name: CI/CD Pipeline
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
-
-jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Lint Frontend
-        run: cd frontend && npm run lint
-      - name: Lint Backend
-        run: cd backend && npm run lint
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Test Frontend
-        run: cd frontend && npm test
-      - name: Test Backend
-        run: cd backend && npm test
-
-  build:
-    runs-on: ubuntu-latest
-    needs: [lint, test]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build
-        run: |
-          cd frontend && npm run build
-          cd backend && npm run build
-```
+Only scripts a part actually declares are emitted, so a frontend without a `test` script
+gets no test step instead of a failing one. `npm install` is used rather than `npm ci`
+because a generated project ships no lockfile.
 
 ---
 
-## 7. Performance Design
+## 7. Audit
 
-### 7.1 Performance Targets
+Six checks run over the scanned tree. Each finding carries a severity and a location:
 
-| Operation | Target | Strategy |
-|-----------|--------|----------|
-| Template loading | < 50ms | Embedded binary (include_str!), no runtime file I/O |
-| Folder creation | < 100ms | Parallel `fs::create_dir_all`, no sequential writes |
-| File generation | < 200ms | Buffer writes, batch file creation |
-| Dry-run output | < 100ms | In-memory tree construction, no disk I/O |
-| Git init + commit | < 2s | Shell exec `git init && git add . && git commit` |
-| Total `snipe-code new` | < 5s | End-to-end |
+| Check | What it looks for |
+| --- | --- |
+| Hardcoded secrets | Assignment-shaped literals inside source files |
+| `.env` in git | A present `.env` beside version control metadata |
+| SQL injection | Query strings built by concatenation |
+| XSS risks | Unescaped HTML injection sinks |
+| Security configs | Missing baseline configuration files |
+| Stack source risks | Patterns tied to the recognized ecosystems |
 
-### 7.2 Optimization Strategies
+Traversal skips VCS metadata, dependency directories, build output, and report output,
+and the report states what it excluded. Export formats are `md`, `pdf`, and `docx`,
+written as `Audit_Report.*` inside the scanned directory. Duplicate formats normalize;
+an empty or unknown token is a usage error. With `--json` the files are still written and
+the export summary moves to stderr so stdout stays parseable.
 
-```rust
-// Embedded templates at compile time — no disk reads
-const TEMPLATE_IOT: &str = include_str!("../templates/iot-dashboard.json");
-const TEMPLATE_COMPANY: &str = include_str!("../templates/company-profile.json");
-const TEMPLATE_PORTFOLIO: &str = include_str!("../templates/portfolio.json");
-const TEMPLATE_BLOG: &str = include_str!("../templates/blog.json");
-
-// Parallel folder creation
-let folders: Vec<_> = structure.folders.iter().map(|f| {
-    fs::create_dir_all(&f.path)
-}).collect();
-join_all(folders).await?;
-```
+The report is heuristic. It states the detected scopes and the rule groups that ran, and
+"no findings detected by evaluated rules" is not a claim that the project is safe.
 
 ---
 
-## 8. Scalability Design
+## 8. Analyze
 
-### 8.1 Template System Extension
+`analyze` walks the tree once and reports languages with file and line totals, top-level
+structure, entry points per part, declared dependencies per manifest, and a Limits
+section. Language detection is an extension table covering Rust, TypeScript, JavaScript,
+Vue, PHP, Go, Java, C#, Python, Ruby, Shell, PowerShell, SQL, CSS, Sass, HTML, Markdown,
+JSON, YAML, TOML, and XML.
 
-```mermaid
-graph TD
-    A[New Template] --> B[Define JSON]
-    B --> C[Add to Registry]
-    C --> D[No code changes needed]
-    D --> E[Automatically available in CLI]
-```
+Entry point candidates are checked per part in a fixed order, for example
+`frontend/src/main.tsx` before `index.html`, and `backend/artisan` for Laravel.
 
-### 8.2 Future Extension Points
-
-| Extension | Current Support | Future Plan |
-|-----------|----------------|-------------|
-| Community templates | Not in v1 | CLI fetches from GitHub registry |
-| Template versioning | Not in v1 | Version field in JSON, CLI prompts upgrade |
-| Custom stack configs | Not in v1 | `~/.snipe-code/stacks.json` user-defined stacks |
-| Multi-language | Rust only | Language-agnostic JSON definitions |
+`package.json`, `composer.json`, `go.mod`, and `Cargo.toml` are read as JSON or TOML
+structures. `pom.xml` and `*.csproj` are scanned for dependency element names, because
+the binary ships no XML parser. Line totals include blank lines and comments: there is no
+code-versus-comment split.
 
 ---
 
-## 9. Monitoring & Logging
+## 9. Verify
 
-### 9.1 CLI Output Levels
+Gates come from manifests in the target tree, never from the generator's stack list, so
+`verify` works on projects this tool did not create.
 
-```
---quiet    : No output except errors
-(default)  : Normal output (prompts + success messages)
---verbose  : Debug output (template loaded, folders created, etc.)
-```
+| Manifest | Gates |
+| --- | --- |
+| `package.json` | `npm install`, then the declared `typecheck`, `lint`, `test`, `build` scripts |
+| `composer.json` + `artisan` | `composer install --no-interaction --no-progress`, `php artisan test` |
+| `composer.json` + `phpunit.xml` | `composer install --no-interaction --no-progress`, `php vendor/bin/phpunit` |
+| `go.mod` | `go mod download`, `go mod tidy`, `go vet ./...`, `go test ./...`, `go build ./...` |
+| `pom.xml` | `mvn test`, `mvn package -DskipTests` |
+| `*.csproj` / `*.sln` | `dotnet restore`, `dotnet test --no-restore`, `dotnet build --no-restore` |
 
-### 9.2 Structured Output
+Gate order is fixed: install, lint, typecheck, test, build, then security when requested.
+A gate reports `passed`, `failed`, `not-applicable` with a reason, or `unavailable` when
+its tool is missing. `unavailable` does not fail the run.
 
-```json
-{
-  "status": "success",
-  "template": "iot-dashboard",
-  "stack": { "frontend": "nextjs", "backend": "nestjs", "database": "postgresql" },
-  "folders_created": 12,
-  "files_created": 18,
-  "git_initialized": true,
-  "duration_ms": 3200
-}
-```
+`Report` is returned to both callers. `verify::run` takes a `Runner` function pointer, so
+tests inject a fake runner and never spawn `npm` or `go`.
 
----
-
-## 10. Testing Strategy
-
-### 10.1 Test Pyramid
-
-```mermaid
-graph TB
-    A[Unit Tests] --> B[Integration Tests]
-    B --> C[E2E Tests]
-    
-    A -.- A1[Template JSON parsing]
-    A -.- A2[Structure validation]
-    A -.- A3[Stack config parsing]
-    
-    B -.- B1[Generator creates correct files]
-    B -.- B2[Security configs present]
-    B -.- B3[Git init works]
-    
-    C -.- C1[Full snipe-code new flow]
-    C -.- C2[Dry-run output correct]
-    C -.- C3[Error handling paths]
-```
-
-### 10.2 Key Test Cases
-
-| Test Case | Type | Description |
-|-----------|------|-------------|
-| Template JSON valid | Unit | Parse all template JSON, assert no deserialization error |
-| Structure generation | Integration | Generate for each template, assert expected folders/files exist |
-| No Template clean start | Integration | Generate without template, assert clean architecture only |
-| Security config present | Integration | Assert `.env.example`, `.gitignore`, CORS config exist in output |
-| Git init succeeds | E2E | Run full `snipe-code new`, assert `.git/` exists with commit |
-| Dry-run no files | Integration | Run `--dry-run`, assert no files created |
-| Error on existing folder | E2E | Run with existing target, assert error + prompt |
-| All stacks | Integration | Test each frontend/backend/db combination |
+`--no-install` clears the install gate commands and records the reason
+`skipped by --no-install`, so the gate still appears in the report.
 
 ---
 
-## 11. Deployment Strategy
+## 10. AI agent artifacts
 
-### 11.1 Build Targets
+`templates/ai-tools.json` holds one entry per tool: `id`, `name`, and `artifacts[]` with
+`path`, `format`, and `template`. Ten tools are registered: `agents-md`, `claude-code`,
+`cursor`, `opencode`, `antigravity`, `github-copilot`, `windsurf`, `hermes-agent`,
+`codex`, and `gemini-cli`.
 
-The built list is data: `.github/release-targets.json`. The `package` matrix and the
-`publish` job's expected counts both read that file, so adding or removing a platform
-is one edit in one file (see 11.3).
+Renderers are keyed by format: `markdown`, `mdc`, `skill`, `command`. An unknown format
+or tool id is an error, never a silent skip. `AGENTS.md` is claimed by both the
+cross-tool entry and Codex, and `GEMINI.md` by Antigravity and Gemini CLI; a claimed path
+is written once and the overlap is reported in `GenerateResult.ai_overlaps`.
+
+Artifacts are opt-in. Selecting none leaves only the shared `.ai-workspace/rules.md` and
+`.ai-workspace/rules.mdc`. The command artifacts are instructions for an external agent
+to run; `snipe-code` itself never calls a model.
+
+---
+
+## 11. Release and distribution
+
+### 11.1 Build targets
+
+The list is data in `.github/release-targets.json`. The `package` matrix and the expected
+counts in `publish` both read it, so a platform change is one edit.
 
 | Target | Runner | Platform | Archive |
-|--------|--------|----------|---------|
+| --- | --- | --- | --- |
 | `x86_64-unknown-linux-gnu` | `ubuntu-latest` | Linux x86_64 | `.tar.gz` |
 | `x86_64-pc-windows-msvc` | `windows-latest` | Windows x86_64 | `.zip` |
-| `x86_64-apple-darwin` | `macos-13` | macOS x86_64 (Intel) | `.tar.gz` |
+| `x86_64-apple-darwin` | `macos-15-intel` | macOS x86_64 (Intel) | `.tar.gz` |
 | `aarch64-apple-darwin` | `macos-latest` | macOS arm64 (Apple silicon) | `.tar.gz` |
 
-### 11.2 Distribution
+### 11.2 Published channels
 
-```
-GitHub Releases/
-├── snipe-code-<tag>-x86_64-unknown-linux-gnu.tar.gz
-├── snipe-code-<tag>-x86_64-pc-windows-msvc.zip
-├── snipe-code-<tag>-x86_64-apple-darwin.tar.gz
-├── snipe-code-<tag>-aarch64-apple-darwin.tar.gz
-├── <each archive>.sha256      # published checksum
-└── <each archive>.bundle      # keyless cosign signature bundle
-```
+State observed on 2026-10-21 from the GitHub, crates.io, and ghcr.io APIs:
 
-Each archive contains the executable, `LICENSE`, `README.md`, and `SOURCE_REVISION`.
-`install.sh` and `install.ps1` download an archive, verify the published checksum,
-verify the cosign bundle when `cosign` is installed, and only then place the binary.
-The crate is published to crates.io in the same run, so `cargo install snipe-code
---locked` installs the released version. The flag is not cosmetic. The packaged
-`Cargo.lock` pins `zip 0.6.6`, crates.io marks that release yanked, and a lockfile pin
-overrides yank status while a fresh resolve does not. At the last check the entire
-`zip` line was yanked and only the newest release was not, which is why no `docx-rs`
-requirement can currently be satisfied from a fresh resolve; re-check
-`https://crates.io/api/v1/crates/zip` before assuming that still holds. Two consequences: every `zip` release `docx-rs` accepts
-is yanked, so no dependency bump escapes this until upstream publishes a compatible
-one, and the `crate` job only publishes when the `CARGO_REGISTRY_TOKEN` secret exists,
-so until that secret is set no version of this crate is on crates.io at all.
+| Channel | State |
+| --- | --- |
+| GitHub release `v0.5.3` | 12 assets: four archives, four `.sha256` manifests, four cosign bundles |
+| crates.io | `snipe-code` 0.5.3, with 0.5.1 and 0.5.2 before it |
+| Container image | `ghcr.io/athallaarl66/snipe-code`, tags `v0.5.2`, `v0.5.3`, `latest` |
+| `install.sh` / `install.ps1` | In the repository and inside the archives; not run against v0.5.3 on each platform |
 
-### 11.3 CI/CD for CLI itself
+Each archive contains the binary, `LICENSE`, `README.md`, and `SOURCE_REVISION`. The
+installers download an archive, verify the published checksum, verify the cosign bundle
+when `cosign` is installed, and only then place the binary.
 
-The release workflow (`.github/workflows/release.yml`) has five jobs:
+`cargo install snipe-code --locked` installs the published version. The flag is required:
+the packaged `Cargo.lock` pins `zip 0.6.6`, crates.io marks that release yanked, and a
+lockfile pin overrides yank status while a fresh resolve does not.
+
+### 11.3 Release workflow
+
+`.github/workflows/release.yml` has five jobs:
 
 | Job | Role |
-|-----|------|
+| --- | --- |
 | `quality` | Asserts the tag equals the crate version, then runs `cargo fmt --check`, Clippy `-D warnings`, `cargo test`, and `cargo publish --dry-run` |
 | `targets` | Reads `.github/release-targets.json` and exposes the matrix and the target count |
-| `package` | One job per target: build, stage the archive (binary + `LICENSE` + `README.md` + `SOURCE_REVISION`), checksum it, upload it |
-| `publish` | Derives the expected archive and checksum counts from the target list, asserts every target has an archive, runs `sha256sum --check`, signs each archive with keyless cosign, and publishes the GitHub release |
-| `crate` | Runs after `quality`, so nothing is published while the gate is red; skips a version crates.io already holds, then runs `cargo publish` |
+| `package` | One job per target: build, stage the archive (binary, `LICENSE`, `README.md`, `SOURCE_REVISION`), checksum it, upload it |
+| `publish` | Derives expected archive and checksum counts from the target list, asserts every target has an archive, runs `sha256sum --check`, signs each archive with keyless cosign, publishes the GitHub release |
+| `crate` | Runs after `quality`, skips a version the registry already holds, then runs `cargo publish` |
 
-`cargo publish` needs the `CARGO_REGISTRY_TOKEN` repository secret; without it the
-`crate` job fails loudly instead of skipping the publish silently.
+`cargo publish` needs the `CARGO_REGISTRY_TOKEN` repository secret. Without it the
+`crate` job fails loudly instead of skipping the publish.
 
 ---
 
-## 12. Risk Mitigation (Technical)
+## 12. Risks
 
 | Risk | Mitigation |
-|------|------------|
-| Template too generic | Validate with real projects; iterate based on feedback |
-| Folder collision | Detect existing folder, prompt overwrite/merge/cancel |
-| Stack version drift | Generate structure only; user installs deps via package manager |
-| Large template size | Embedded at compile-time; each template < 50KB JSON |
-| Git not installed | Graceful skip with warning; CLI works without git |
-| `zip` transitive dependency yanked upstream | Every build resolves from the committed `Cargo.lock`; install docs pass `--locked`; no escape until upstream ships a `zip` release `docx-rs` accepts |
-| `verify` writes into the project it checks | Every gate is the project's own command; the README states what each one writes, and `--no-install` skips the install gate |
-| Audit reports land inside the scanned project | Generated `.gitignore` ignores `Audit_Report.md`, `.pdf`, and `.docx`; the README names the three files |
+| --- | --- |
+| Heuristic audit produces false positives | The report states detected scopes and rule groups; generated agent guidance says to review findings before editing |
+| `verify` mutates the project it checks | Every gate is the project's own command; the README lists what each writes; `--no-install` skips the install gate |
+| Audit reports land inside the scanned project | Generated `.gitignore` ignores the three `Audit_Report.*` names |
+| `zip` 0.6.x yanked upstream | Builds resolve from the committed `Cargo.lock`; install docs pass `--locked` |
+| Overwrite destroys an existing directory | Staged publish with a sibling backup and rollback; the backup path is reported when recovery fails |
+| Stack version drift | Templates are plain files, so a version bump is a template edit and a rebuild |
+| Generated project needs a toolchain the user lacks | `verify` reports the gate as `unavailable` instead of failing the run |
 
 ---
 
-## Current implementation status
+## 13. Limits and unimplemented features
 
-Technical source of truth is current Rust code and tests.
+- Audit findings carry severity, location, and message strings rather than typed rule
+  ids, so cross-run deduplication is not implemented.
+- PDF export is page-limited; a long finding list reports an omission count instead of
+  rendering every entry.
+- `verify` recognizes the npm, Composer, Go, Maven, .NET, and Cargo ecosystems. Python and
+  Ruby projects report no gates.
+- Generated Laravel projects ship `.env.example` only, so `php artisan test` prints one
+  phpdotenv warning while exiting 0.
+- The blog RSS file is a static sample with a localhost URL.
+- The IoT dashboard preset, template marketplace, template versioning, and
+  `~/.snipe-code/stacks.json` user-defined stacks are plans in the PRD, not features.
+- The installer scripts have not been run against a published release on each platform.
+- The AI layer (`audit --explain`) is deferred. If it is added, it uses a user-supplied
+  key or a local model, never a key embedded in the binary.
 
-- `src/main.rs` parses commands and explicit `new` selections.
-- `src/commands/new.rs` handles wizard defaults, validation, collision prompts, and JSON output.
-- `src/template.rs` embeds presets and supports `SNIPE_CODE_TEMPLATES` overrides.
-- `src/stack.rs` owns frontend, backend, and database registries.
-- `src/generator.rs` stages output, validates manifests, and uses backup swap for overwrite.
-- `src/audit.rs` owns shared traversal, heuristic findings, scope detection, and exports.
-- `src/analyze/` provides read-only project analysis.
-- `src/verify/` derives quality gates from project manifests.
-- `src/ai_tools.rs` and `src/ai_workspace.rs` generate opt-in external-agent files.
+---
 
-Audit findings require source review. Blog RSS is a static sample with localhost URL. Release archives, registry publication, and container image require independent public evidence.
+## 14. Change history
 
-## 13. Change History
-
-| Version | Date | Author | Description |
-|---------|------|--------|-------------|
-| 1.0 | 2026-07-28 | SNIPE-CODE Team | Initial TDD — Enterprise Preset Templates |
+| Version | Date | Description |
+| --- | --- | --- |
+| 1.0 | 2026-07-28 | Initial design for enterprise preset templates |
+| 2.0 | 2026-10-21 | Rewritten against the 0.5.3 code base: modules, template layout, presets, generated output, audit, analyze, verify, AI artifacts, release channels, limits |

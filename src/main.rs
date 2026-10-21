@@ -293,6 +293,13 @@ OPTIONS
     --ai-tools <l> (new) AI agent tools yang di-generate, id dipisah koma
                    (mis. cursor,claude-code) atau 'none' untuk tanpa artifact
     --name <n>     (new) Nama proyek; melewati prompt nama
+    --template <id>
+                   (new) Preset: none, company-profile, portfolio, blog
+    --frontend <id>
+                   (new) Frontend: nextjs, react-vite, vue, nuxtjs, none
+    --backend <id> (new) Backend: dotnet8, nestjs, go-gin, spring-boot, laravel, none
+    --database <id>
+                   (new) Database: postgresql, mysql, none
     --json         Hasil terstruktur (JSON) di stdout untuk new, analyze, dan
                    audit; progress serta pesan lain ke stderr
     --export <f>   Format export audit: md, pdf, docx (koma, contoh: pdf,docx)
@@ -377,6 +384,7 @@ const NEW_HELP: &str = r#"snipe-code new — Generate proyek baru
 
 USAGE
     snipe-code new [--dry-run] [--ai-tools <ids|none>] [--name <n>] [--json]
+                   [--template <id>] [--frontend <id>] [--backend <id>] [--database <id>]
 
 ALUR WIZARD
     1. Pilih template (No Template / Company Profile / Portfolio / Blog)
@@ -395,6 +403,13 @@ OPTIONS
                          Nilai 'none' berarti tidak ada artifact agen. Opsi ini juga
                          melewati prompt pemilihan AI tools.
     --name <n>           Nama proyek; melewati prompt nama
+    --template <id>      Preset: none, company-profile, portfolio, blog.
+                         Melewati prompt template.
+    --frontend <id>      nextjs, react-vite, vue, nuxtjs, atau none.
+                         Melewati prompt Frontend.
+    --backend <id>       dotnet8, nestjs, go-gin, spring-boot, laravel, atau none.
+                         Melewati prompt Backend.
+    --database <id>      postgresql, mysql, atau none. Melewati prompt Database.
     --json               Hasil generate (tools, artifact, outcome) sebagai JSON
                          di stdout; progress dan peringatan ke stderr
 
@@ -404,6 +419,8 @@ CONTOH
     snipe-code new --ai-tools cursor,claude-code
     snipe-code new --ai-tools none --name demo
     snipe-code new --ai-tools claude-code --name demo --json
+    snipe-code new --template blog --frontend nextjs --backend none \
+                   --database none --name site
 "#;
 
 const AUDIT_HELP: &str = r#"snipe-code audit — Security audit folder proyek

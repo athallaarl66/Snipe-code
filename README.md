@@ -6,18 +6,18 @@
 A Rust CLI that scaffolds projects, reads an existing codebase, and audits it for
 security risks. Everything runs locally: no account, no API key, no AI service.
 
-Current distribution status: build from source works. The published v0.5.0 release has
-no downloadable assets, the crate is not available from crates.io, and the container
-image is not verified. Use source build until a new release passes archive, checksum,
-installer, registry, and image checks.
+Current distribution status, checked 2026-10-21: release `v0.5.3` publishes an archive for
+all four targets with a checksum and a cosign bundle each, crate `0.5.3` is on crates.io,
+and the container image carries the `v0.5.3` tag. The installer scripts ship in this
+repository and inside the archives, but they have not been run against this release on
+every platform. If a scripted install fails, build from source below.
 
 ## Install
 
-### Shell installer (currently unavailable)
+### Shell installer
 
-The latest public release has no downloadable archives. This is the no Rust toolchain
-channel, but it is unavailable until a release with published assets passes installer
-smoke tests.
+The no Rust toolchain channel. It reads the latest release, so it installs `v0.5.3`
+today. Read the script before running it; nothing is piped into a shell.
 
 Linux and macOS:
 
@@ -41,27 +41,27 @@ binary behind. Default destination is `~/.local/bin` on POSIX and
 `%LOCALAPPDATA%\Programs\snipe-code` on Windows; both print a PATH hint. Override with
 `SNIPE_INSTALL_VERSION`, `SNIPE_INSTALL_DIR`, and `SNIPE_RELEASE_BASE_URL`.
 
-### cargo install (currently unavailable)
+### cargo install
 
-The crate is not currently published on crates.io. The command below is the intended
-install path after publication, not a working command today:
+The published crate is version 0.5.3:
 
 ```bash
 cargo install snipe-code --locked
 ```
 
-For current use, build from source below.
+The `--locked` flag is required here too. A plain `cargo install snipe-code` re-resolves
+dependencies and stops on the yanked `zip` release that `docx-rs` needs.
 
-### Container image (not verified)
+### Container image
 
-The image command is documented for the future release channel, but no public image
-has been verified yet:
+Published at GitHub Container Registry, with tags `v0.5.3` and `latest`:
 
 ```bash
 docker run --rm -v "$PWD:/work" -w /work ghcr.io/athallaarl66/snipe-code:latest audit . --export md
 ```
 
-Use source build or a local Docker build until the published image is checked.
+The image has not been run on this machine. Build from source if you want to test the
+binary from your own checkout.
 
 ### Build from source
 
@@ -149,11 +149,12 @@ snipe-code                                    # wizard
 snipe-code --dry-run                          # preview the structure, write nothing
 snipe-code new --ai-tools cursor,claude-code  # pick AI artifacts without prompting
 snipe-code new --ai-tools none --name demo --json
+snipe-code new --template blog --frontend nextjs --backend none --database none --name site
 ```
 
-Wizard order: template, frontend, backend, database, project name, collision prompt
-(Overwrite or Cancel), generate, CI/CD, Docker, AI workspace, then `git init` and an
-initial commit.
+Wizard order: template, frontend, backend, database, project name, AI tools, collision
+prompt (Overwrite or Cancel), generate, then `git init` and an initial commit. The
+Docker, CI, and AI workspace files are written during generation.
 
 The project directory is created at `<current directory>/<name>`, so run the wizard
 from the folder that should hold it. The name comes from the prompt or `--name`; no
@@ -162,6 +163,10 @@ argument redirects the output somewhere else.
 | Flag | Effect |
 | --- | --- |
 | `--dry-run` | Print the structure without creating a file |
+| `--template <id>` | `none`, `company-profile`, `portfolio`, or `blog`; skips the template prompt |
+| `--frontend <id>` | `nextjs`, `react-vite`, `vue`, `nuxtjs`, or `none`; skips the frontend prompt |
+| `--backend <id>` | `dotnet8`, `nestjs`, `go-gin`, `spring-boot`, `laravel`, or `none`; skips the backend prompt |
+| `--database <id>` | `postgresql`, `mysql`, or `none`; skips the database prompt |
 | `--ai-tools <ids\|none>` | AI agent artifacts to generate, comma separated; `none` skips the prompt and generates none |
 | `--name <n>` | Skip the project-name prompt |
 | `--json` | Generate result (`project`, `ai_tools`, `ai_artifacts`, `ai_overlaps`, `files`, `outcome`) as JSON on stdout, progress on stderr |
@@ -460,8 +465,10 @@ cargo test --all-targets --all-features
 
 ## Documentation
 
+- `docs/README.md`: index of every document in this directory.
 - `docs/features/`: PRD and technical design.
-- `docs/production/`: task breakdowns per feature.
+- `docs/production/`: scenario breakdowns per user story.
+- `docs/uat/`: user acceptance cases and their evidence status.
 
 ## Author
 
