@@ -3,7 +3,7 @@
 ## Document Information
 - **Document Version**: 1.0
 - **Created Date**: 2026-07-28
-- **Last Updated**: 2026-07-28
+- **Last Updated**: 2026-10-21
 - **Author**: SNIPE-CODE Team
 - **Project**: SNIPE-CODE CLI
 - **Feature**: Enterprise Preset Templates
@@ -13,12 +13,13 @@
 ## 1. Executive Summary
 
 ### 1.1 Purpose
-Memberikan pengguna template preset siap pakai untuk berbagai kebutuhan (IoT Dashboard, Company Profile, Portfolio, Blog) serta opsi bebas template — cukup pilih stack, dapatkan struktur folder yang aman, clean architecture, dan sesuai standar industri.
+Memberikan pengguna template preset siap pakai (Company Profile, Portfolio, Blog) serta opsi tanpa template — cukup pilih stack, dapatkan struktur folder yang aman, clean architecture, dan sesuai standar industri. Preset IoT Dashboard masih rencana dan belum ada di CLI.
 
 ### 1.2 Scope
 **In Scope:**
 - Template preset: Company Profile, Portfolio, Blog/Posts
 - Opsi "No Template" — hanya generate struktur folder sesuai stack
+- Command `analyze` (laporan read-only) dan `verify` (menjalankan gate proyek)
 - Pilihan stack dinamis (Frontend + Backend + DB/ORM)
 - Struktur folder standar Clean Architecture / DDD
 - Security best practices baked into generated structure
@@ -71,10 +72,10 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 **So that** saya langsung dapat struktur proyek yang sesuai kebutuhan
 
 **Acceptance Criteria:**
-- [ ] `snipe-code new` menampilkan daftar template: Company Profile, Portfolio, Blog
-- [ ] Setelah pilih template, bisa pilih stack (Frontend + Backend + DB/ORM)
-- [ ] Template menentukan struktur folder tambahan (misal: dashboard/ ada layout khusus, blog/ ada posts/)
-- [ ] Semua file yang digenerate punya komentar security header
+- [x] `snipe-code new` menampilkan daftar template: No Template, Company Profile, Portfolio, Blog
+- [x] Setelah pilih template, bisa pilih stack (Frontend + Backend + Database)
+- [x] Template menentukan struktur folder tambahan (blog/ punya posts/, portfolio/ punya sections/)
+- [ ] Semua file yang digenerate punya komentar security header (belum ada; yang digenerate `.env.example` dan `.gitignore`)
 
 **Priority:** Must Have
 
@@ -85,9 +86,9 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 
 **Acceptance Criteria:**
 - [ ] Ada opsi "No Template — clean start" di daftar template
-- [ ] Struktur yang digenerate tetap clean architecture sesuai stack
-- [ ] Tetap ada security config (.env.example, helmet config, CORS setup)
-- [ ] Git init tetap jalan
+- [x] Struktur yang digenerate tetap clean architecture sesuai stack
+- [x] Tetap ada security config dasar (`.env.example`, `.gitignore`; config helmet/CORS per framework belum digenerate)
+- [x] Git init tetap jalan
 
 **Priority:** Must Have
 
@@ -97,9 +98,9 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 **So that** saya yakin sebelum eksekusi
 
 **Acceptance Criteria:**
-- [ ] `snipe-code new --dry-run` print simulasi folder tree
-- [ ] Tidak ada file yang beneran dibuat
-- [ ] Output jelas: "Would create: frontend/src/pages/, backend/src/controllers/..."
+- [x] `snipe-code new --dry-run` print simulasi folder tree
+- [x] Tidak ada file yang beneran dibuat
+- [x] Output jelas: `[DRY RUN] Would create:` diikuti tree struktur
 
 **Priority:** Should Have
 
@@ -109,10 +110,10 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 **So that** saya bisa deliver ke klien dalam hitungan jam
 
 **Acceptance Criteria:**
-- [ ] Struktur halaman: Home, About, Services, Contact, Team
-- [ ] SEO meta tags sudah included
-- [ ] Responsive layout out-of-the-box
-- [ ] Backend opsional (bisa static site pake frontend aja)
+- [x] Struktur folder halaman: Home, About, Services, Contact, Team (folder saja, halaman belum terisi)
+- [ ] SEO meta tags sudah included (rencana)
+- [ ] Responsive layout out-of-the-box (rencana)
+- [x] Backend opsional (bisa static site pake frontend aja)
 
 **Priority:** Must Have
 
@@ -122,10 +123,10 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 **So that** saya punya landing page personal yang profesional
 
 **Acceptance Criteria:**
-- [ ] Halaman: Hero, Projects grid, Skills, Experience, Contact
-- [ ] Dark/light mode toggle included
-- [ ] Projects data dari JSON/yaml (mudah di-edit)
-- [ ] Deploy-ready ke Vercel/Netlify
+- [x] Struktur folder: Hero, Projects grid, Skills, Experience, Contact (folder saja)
+- [ ] Dark/light mode toggle included (rencana)
+- [x] Projects data dari JSON (`frontend/src/data/projects.json`)
+- [ ] Deploy-ready ke Vercel/Netlify (butuh setup user)
 
 **Priority:** Should Have
 
@@ -135,10 +136,10 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 **So that** saya bisa nulis dan publish tanpa setup dari nol
 
 **Acceptance Criteria:**
-- [ ] Struktur: posts/, categories/, tags/, author page
-- [ ] Markdown/MDX support untuk konten
-- [ ] RSS feed auto-generated
-- [ ] Backend opsional: bisa pake headless CMS atau static generation
+- [x] Struktur: posts/, categories/, tags/, author page
+- [x] Markdown/MDX support untuk konten (`hello-world.mdx`)
+- [ ] RSS feed auto-generated (yang digenerate hanya sampel statis `frontend/public/rss.xml`, tidak ikut update saat post ditambah)
+- [x] Backend opsional: bisa pake headless CMS atau static generation
 
 **Priority:** Should Have
 
@@ -148,9 +149,9 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 **So that** saya tahu apakah best-practice dasar sudah terpenuhi
 
 **Acceptance Criteria:**
-- [ ] `snipe-code audit` men-scan keberadaan .env.example, .gitignore, dll.
-- [ ] Bisa mengekspor laporan ke format Markdown, PDF, dan DOCX.
-- [ ] Output file audit tersimpan di direktori target.
+- [x] `snipe-code audit` men-scan keberadaan .env.example, .gitignore, dll.
+- [x] Bisa mengekspor laporan ke format Markdown, PDF, dan DOCX.
+- [x] Output file audit tersimpan di direktori target sebagai `Audit_Report.*`
 
 **Priority:** Must Have
 
@@ -160,13 +161,14 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 **So that** saya bisa langsung menggunakan Cursor/Windsurf dengan context yang tepat.
 
 **Acceptance Criteria:**
-- [ ] Otomatis membuat file `.cursorrules` dengan instruksi stack yang dipilih.
-- [ ] Membuat file `AGENTS.md` untuk panduan AI Agent.
+- [x] Membuat `.cursorrules` dengan instruksi stack yang dipilih, saat tool Cursor dipilih (opt-in).
+- [x] Membuat `AGENTS.md` untuk panduan AI Agent, saat tool terkait dipilih (opt-in).
+- [x] `.ai-workspace/rules.md` dan `rules.mdc` selalu ditulis.
 
 **Priority:** Must Have
 
 
-### 4.1 User Stories
+### 4.2 Functional Requirements per Module
 
 #### Module 1: Template Selector
 - **FR-TS-01:** CLI menampilkan daftar template interaktif (pake dialoguer / arrow keys)
@@ -176,21 +178,21 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 
 #### Module 2: Stack Selection
 - **FR-SS-01:** Pilih Frontend: Next.js, React (Vite), Vue, Nuxt.js — atau none
-- **FR-SS-02:** Pilih Backend: .NET 8, NestJS, Go (Gin/Fiber), Spring Boot, Laravel — atau none
-- **FR-SS-03:** Pilih DB/ORM: PostgreSQL, MySQL — auto-integrasi dengan ORM sesuai stack
+- **FR-SS-02:** Pilih Backend: .NET 8, NestJS, Go (Gin), Spring Boot, Laravel — atau none
+- **FR-SS-03:** Pilih Database: PostgreSQL, MySQL — atau none. Integrasi ORM belum digenerate; yang ditulis hanya `DATABASE_URL` di `.env.example`
 - **FR-SS-04:** Validasi minimal: setidaknya 1 stack dipilih (Frontend atau Backend)
 
 #### Module 3: Structure Generator
 - **FR-SG-01:** Generate folder tree sesuai template + stack
-- **FR-SG-02:** Security bawaan: `.env.example`, `helmet`/CORS config, `.gitignore`, input sanitizer structure
+- **FR-SG-02:** Security bawaan: `.env.example` dan `.gitignore`. Config helmet/CORS per framework dan input sanitizer belum digenerate
 - **FR-SG-03:** Clean Architecture: `controllers/`, `services/`, `repositories/`, `middleware/`, `routes/` (backend)
 - **FR-SG-04:** Component isolation: `components/ui/`, `components/layout/`, `hooks/`, `pages/` (frontend)
-- **FR-SG-05:** Docker compose untuk DB (opsional, sesuai stack)
+- **FR-SG-05:** Docker compose untuk DB, digenerate saat backend dan database sama-sama dipilih
 
 #### Module 4: Git & CI/CD Automation
 - **FR-GC-01:** Auto `git init` setelah generate
-- **FR-GC-02:** Generate `.gitignore` optimal per stack
-- **FR-GC-03:** Generate `.github/workflows/main.yml` dengan lint + test pipeline
+- **FR-GC-02:** Generate satu `.gitignore` yang berlaku untuk semua stack
+- **FR-GC-03:** Generate `.github/workflows/main.yml` dengan job per bagian, memakai script yang benar-benar dideklarasikan proyek
 - **FR-GC-04:** Auto `git add . && git commit -m "Initial commit: [template] + [stack]"`
 
 ---
@@ -205,8 +207,8 @@ Satu command `snipe-code new` bisa generate proyek siap pakai dalam <30 detik. M
 ### 5.2 Security Requirements
 - Tidak ada hardcoded secrets di file template
 - `.env.example` untuk semua konfigurasi
-- CORS, Helmet, rate limiter config auto-included di backend
-- SQL injection protection structure (parameterized queries di repository layer)
+- Tidak ada secret nyata di file template; `.env.example` hanya berisi placeholder
+- Config CORS, Helmet, rate limiter per framework dan contoh parameterized query belum digenerate (rencana)
 
 ### 5.3 Usability Requirements
 - Semua prompt pake arrow key navigation — no typing needed
@@ -232,7 +234,7 @@ $ snipe-code new
 ? Pilih Backend: .NET 8 | NestJS | Go | Spring Boot | Laravel | None
 ? Pilih Database: PostgreSQL | MySQL | None
 ? Project Name: my-project
-? Use Docker? Yes / No
+? Pilih AI Agent Tools (opsional, multi-select)
 
 ✔ Generating project structure...
 
@@ -265,7 +267,7 @@ my-project/
 - Pilihan default ada di opsi yang paling umum (recommended)
 - Warna: hijau untuk success, kuning untuk info, merah untuk error
 - Spinner selama generate
-- `--quiet` flag untuk skip semua prompt — langsung pake default
+- Tanpa terminal, semua prompt dilewati dan nilai default dipakai (template none, frontend nextjs). Tidak ada flag `--quiet`
 
 ---
 
@@ -280,8 +282,9 @@ my-project/
 6. CLI init git + commit
 
 ### 7.2 Template Storage
-- Template definitions: JSON file di `~/.snipe-code/templates/`
-- Template files: embedded binary (compile-time) atau fetch from registry
+- Template definitions: file di dalam repo `templates/` (frontends, backends, presets), di-embed ke binary saat compile dengan `include_dir!`
+- Override lokal tanpa recompile lewat env var `SNIPE_CODE_TEMPLATES`; resolusi per file, file yang tidak di-override tetap memakai versi bawaan
+- Tidak ada fetch dari registry
 - Struktur per template: `{ name, description, structure: { folders[], files[], rules{} } }`
 
 ---
@@ -299,7 +302,7 @@ my-project/
 | Rule ID | Rule Description | Condition | Action |
 |---------|-----------------|-----------|--------|
 | BR-001 | No empty project | No stack selected | Warning: "Pilih minimal Frontend atau Backend" |
-| BR-002 | Folder exists | Target folder sudah ada | Prompt: overwrite? / cancel / merge |
+| BR-002 | Folder exists | Target folder sudah ada | Prompt: Overwrite atau Cancel; tanpa terminal berhenti dengan error |
 | BR-003 | Docker skip | User pilih No Docker | Tidak generate docker-compose.yml |
 | BR-004 | Backend-only | Frontend = None | Skip frontend folder dan package.json |
 | BR-005 | Frontend-only | Backend = None | Skip backend folder dan Docker untuk backend |
@@ -311,7 +314,6 @@ my-project/
 ### 10.1 Assumptions
 - User punya Git terinstall
 - User tahu stack apa yang mau dipake
-- Koneksi internet untuk `git init` (first commit)
 
 ### 10.2 Constraints
 - Template hanya yang built-in di v1
@@ -328,7 +330,7 @@ my-project/
 | Risk ID | Risk Description | Probability | Impact | Mitigation Strategy |
 |---------|-----------------|-------------|--------|---------------------|
 | R-001 | Template terlalu generic jadi gak berguna | Medium | Medium | Validasi dengan developer real sebelum rilis; iterasi berdasarkan feedback |
-| R-002 | Struktur folder bentrok dengan existing project | Low | High | Deteksi otomatis + prompt overwrite/merge/cancel |
+| R-002 | Struktur folder bentrok dengan existing project | Low | High | Deteksi otomatis, prompt Overwrite atau Cancel, publish bertahap dengan backup dan rollback |
 | R-003 | Stack version mismatch | Low | Medium | Di template cuma generate struktur — user install dependency sendiri atau via `npm install` |
 
 ---
@@ -338,7 +340,7 @@ my-project/
 | Metric | Target | Measurement Method |
 |--------|--------|-------------------|
 | Time to init project | < 30 detik (end-to-end) | CLI timing |
-| Template usage rate | > 60% dari total `snipe-code new` | CLI telemetry (opt-in) |
+| Template usage rate | > 60% dari total `snipe-code new` | Belum diukur: CLI tidak mengirim telemetry |
 | User satisfaction | Rating > 4/5 | Survey setelah generate |
 
 ---
@@ -348,17 +350,17 @@ my-project/
 This status section overrides older unchecked planning examples above.
 
 Implemented:
-- `new` supports `--template`, `--frontend`, `--backend`, `--database`, `--name`, `--ai-tools`, `--json`, and `--dry-run`.
+- `new` mendukung `--template`, `--frontend`, `--backend`, `--database`, `--name`, `--ai-tools`, `--json`, dan `--dry-run`.
 - Presets: `none`, `company-profile`, `portfolio`, and `blog`.
 - Frontends: `nextjs`, `react-vite`, `vue`, `nuxtjs`, and `none`.
 - Backends: `dotnet8`, `nestjs`, `go-gin`, `spring-boot`, `laravel`, and `none`.
-- `analyze` is read-only. `audit` writes reports into scanned directory. `verify` runs project tools and can write dependency/build output.
-- Audit findings are heuristic and require source review before edits.
+- `analyze` read-only. `audit` menulis laporan ke folder yang di-scan. `verify` menjalankan tool proyek dan bisa menulis output dependency/build.
+- Temuan audit bersifat heuristik dan perlu review kode sebelum diperbaiki.
 
 Limitations and deferred work:
-- IoT Dashboard, live RSS generation, template marketplace, cloud deployment, and automatic UI component installation are not implemented.
-- Blog RSS is static sample with localhost URL. New posts do not update it automatically.
-- Release archives, crates.io package, and container image need publication plus independent smoke-test evidence.
+- IoT Dashboard, live RSS generation, template marketplace, cloud deployment, dan auto-install komponen UI belum diimplementasikan.
+- RSS blog hanya sampel statis dengan URL localhost; post baru tidak memperbarui file itu.
+- Release `v0.5.3` sudah punya empat archive dengan checksum dan cosign bundle, crate `0.5.3` ada di crates.io, dan image ada di ghcr.io. Installer belum diuji di setiap platform terhadap rilis ini, dan belum ada UAT manual (lihat `docs/uat/UAT-MATRIX.md`).
 
 | Role | Name | Signature | Date |
 |------|------|-----------|------|
@@ -373,3 +375,4 @@ Limitations and deferred work:
 | Version | Date | Author | Description of Changes |
 |---------|------|--------|----------------------|
 | 1.0 | 2026-07-28 | SNIPE-CODE Team | Initial version — Enterprise Preset Templates + No Template option |
+| 1.1 | 2026-10-21 | SNIPE-CODE Team | Status per acceptance criterion disamakan dengan kode 0.5.3: tanpa `--quiet`, tanpa opsi merge, RSS statis, IoT masih rencana, template dari `templates/` + `SNIPE_CODE_TEMPLATES` |

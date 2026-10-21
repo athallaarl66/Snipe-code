@@ -1,5 +1,8 @@
 # US-007: Template Blog/Posts — Unit Tests
 
+> Status: these are proposed cases, not executed tests. The executed suite lives in
+> `tests/`, and `docs/uat/UAT-MATRIX.md` maps each case to the suite that covers it.
+
 ### test_blog_has_content_structure
 ```rust
 #[test]
@@ -8,6 +11,7 @@ fn test_blog_has_content_structure() {
     let folders = &template.structure.folders;
     assert!(folders.iter().any(|f| f.contains("posts")));
     assert!(folders.iter().any(|f| f.contains("categories") || f.contains("tags")));
+    assert_eq!(folders.len(), 6);
 }
 ```
 
@@ -16,6 +20,6 @@ fn test_blog_has_content_structure() {
 #[test]
 fn test_blog_backend_optional() {
     let template = TemplateRegistry::get("blog").unwrap();
-    assert!(!template.structure.require_backend);
+    assert!(!template.rules.require_backend);
 }
 ```
