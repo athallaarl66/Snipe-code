@@ -1,7 +1,8 @@
 # SNIPE-CODE CLI
 
-[![CI](https://github.com/athallaarl66/Snipe-code/actions/workflows/ci.yml/badge.svg)](https://github.com/athallaarl66/Snipe-code/actions/workflows/ci.yml)
+[![CI](https://github.com/athallaarl66/Snipe-code/actions/workflows/ci.yml/badge.svg)](https://github.com/athallaarl66/Snipe-code/actions/workflows/ci.yml)[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/athallaarl66/badge.svg)](https://hub.xerj.org/contributors/athallaarl66)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 
 A Rust CLI that scaffolds projects, reads an existing codebase, and audits it for
 security risks. Everything runs locally: no account, no API key, no AI service.
