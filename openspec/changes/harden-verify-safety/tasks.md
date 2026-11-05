@@ -12,6 +12,7 @@
 - [ ] 2.2 Add redacted DB target classification for known production/remote/ambiguous settings; verify fixtures cover effective config precedence without printing credential values.
 - [ ] 2.3 Add negative tests for unknown DB target and deceptive database name containing `test`; verify both block before test/install command invocation.
 - [ ] 2.4 Document per-gate filesystem/network effects and limits of preflight; verify examples and exit status against generated help/tests.
+- [ ] 2.5 Require scope-bound preview and explicit user approval before install, test, endpoint access, or data transmission; use fake runners to verify missing, stale, or agent-only approval blocks each action.
 
 ## 3. Compatibility
 

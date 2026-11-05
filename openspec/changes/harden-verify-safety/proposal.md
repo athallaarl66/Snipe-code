@@ -7,6 +7,7 @@
 ## What Changes
 
 - Tambahkan pemeriksaan keselamatan sebelum menjalankan gate yang bisa menulis atau mengakses network.
+- Wajibkan preview dan persetujuan eksplisit pengguna sebelum install, test, akses endpoint, atau transmisi data; scope yang berubah memerlukan approval baru.
 - Blokir target DB produksi atau ambigu; nyatakan alasan dan jangan spawn command jika preflight gagal.
 - Pertahankan status `unavailable` sebagai hasil non-pass, termasuk dalam exit status/kontrak machine-readable.
 - Dokumentasikan side effect, izin, perilaku `--only`, dan migrasi kompatibilitas.

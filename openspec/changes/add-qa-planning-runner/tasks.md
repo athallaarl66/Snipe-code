@@ -25,6 +25,18 @@
 - [ ] 4.1 Document planning-only default, reviewed consent, DB restrictions, OS capability limits and legacy `verify` effects; verify examples make no unsupported sandbox claim.
 - [ ] 4.2 Run unit/contract tests for plan and policy without real target processes; execute sandbox integration only on disposable DB and isolated host after environment review, recording actual result.
 
+## 5. CLI, agent, skills, and optional integrations
+
+- [ ] 5.1 Define CLI-only workflows and agent parity using shared policy and manifests; add testing skill for user projects without implicit install, execution, or network access.
+- [ ] 5.2 Define optional local/online AI and MCP configuration; verify planning works without them and preview plus explicit user approval precedes endpoint access and each scoped data transmission, including local integrations.
+- [ ] 5.3 Verify install, test, endpoint access, and data transmission each require an explicit preview and user approval bound to exact effects; deny missing, stale, or agent-only approval.
+
+## 6. Phased adapters and OS acceptance
+
+- [ ] 6.1 Define and verify unit/regression pilot adapter and selected framework/version before expanding support.
+- [ ] 6.2 Add phased adapter contracts and fixtures for Playwright, Postman collections using Postman CLI, Bruno, and Maestro; keep each unsupported until its own validation and execution boundary are ready.
+- [ ] 6.3 Perform and record CLI/agent parity UAT per supported OS: planning, preview, approval and refusal, changed scope, results, and unsupported capabilities; retain blocked status for unverified OS boundaries.
+
 ## Workflow follow-up
 
 - The planning-only capability may be applied before a runner implementation is approved.

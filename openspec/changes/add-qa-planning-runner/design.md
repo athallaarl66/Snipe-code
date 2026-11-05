@@ -8,18 +8,21 @@ Lihat proposal dan delta `qa-planning` serta `qa-runner`. Saat ini `verify` menj
 
 **Goals:** pisahkan plan dari run; default read-only; setiap command run ditinjau dan diotorisasi; block bila target DB atau isolasi tidak bisa dibuktikan.
 
-**Non-Goals:** GUI, model AI, automatic fix, live connector, atau menganggap `verify` lama sudah sandboxed. Tidak menjalankan target tak dikenal sebagai bagian perencanaan.
+**Non-Goals:** GUI, AI/MCP wajib, automatic fix, atau menganggap `verify` lama sudah sandboxed. Tidak menjalankan target tak dikenal sebagai bagian perencanaan.
 
 ## Decisions
 
-- `qa plan` hanya menghasilkan case dan draft script dari file yang dipilih, tanpa install, endpoint request, child process, atau menulis target. Export rancangan hanya ke destination eksplisit.
+- `qa plan` dasar hanya menghasilkan case dan draft script dari file yang dipilih, tanpa install, endpoint request, child process, atau menulis target. Integrasi AI/MCP hanya sebagai tahap opt-in terpisah setelah preview dan approval, bukan perilaku planning dasar; tahap ini tidak menjalankan test atau menulis target. Export rancangan hanya ke destination eksplisit.
 - Representasikan tiap case dengan ID, requirement/source refs, category, precondition, input, expected result, adapter/version dan status (`draft`, `ready-for-review`, `unsupported`). Validasi syntax tidak berarti sudah dijalankan.
 - Runner memakai manifest command immutable untuk approval. Preview canonical command, cwd, target URL/DB identity redacted, environment names, mounts, filesystem/network capabilities, output path, timeout dan install effect. Hash manifest; approval berlaku hanya untuk hash yang sama dan satu run.
-- Tampilkan dua tahap UI/CLI: review/approve run, kemudian hasil. Tanpa interaksi TTY/UI yang dapat menampilkan consent, run berstatus blocked. Tidak ada approval lewat default flag atau konfirmasi tersimpan global.
+- CLI dan agent/skills memakai policy serta manifest yang sama; agent tidak boleh menyetujui atas nama pengguna. Tampilkan preview lalu minta approval eksplisit dari pengguna sebelum setiap aksi berisiko. Tanpa kanal CLI/agent yang dapat menampilkan preview dan menerima consent pengguna, aksi berstatus blocked. Tidak ada approval lewat default flag atau konfirmasi tersimpan global.
+- AI dan MCP lokal/online opsional, dinonaktifkan sampai dipilih pengguna; operasi dasar tetap tersedia tanpa keduanya. Sebelum koneksi endpoint atau transmisi data apa pun, preview penyedia, tujuan, data yang akan dikirim, efek dan batas akses; minta persetujuan eksplisit untuk manifest tersebut. Perubahan tujuan/data memerlukan preview dan approval baru; redaksi secret dan fail closed bila scope tidak diketahui. Local MCP/AI tidak dikecualikan dari aturan ini.
 - Implement sandbox adapter per OS yang menyatakan capability filesystem/process/network. Jangan mengklaim isolasi hanya karena subprocess berjalan di temp directory. Bila platform adapter tidak dapat membatasi process/token, mounts, network dan secrets sesuai manifest, jangan spawn command; return blocked.
 - DB gate: identifikasi dari konfigurasi efektif dengan redaksi. Deny produksi/remote/unknown secara default. Disposable DB hanya bila identity dan boundary/container/credentials dibuktikan; tidak pernah menjalankan reset/drop/cleanup di luar sandbox yang dibuat khusus run. Jangan percaya kata `test` pada nama.
 - Semua dependency install/hook adalah command terpisah yang ikut preview dan approval, bukan implisit. Logs scrub token/secret sebelum persistence; cancellation tidak membersihkan file di luar workspace run.
 - Perubahan dijalankan bertahap: case planning dahulu, lalu script generation/validation, kemudian pilot runner untuk satu OS/capability matrix yang ditentukan. Jangan membuka semua adapters di satu release.
+- Roadmap adapter: mulai Postman CLI untuk proyek pengguna, lalu Playwright untuk web, Bruno untuk API, Maestro untuk mobile, serta unit/regression sesuai framework dan versi yang dipilih, masing-masing setelah kontrak, fixture, izin dan boundary OS siap. Urutan setelah pilot dapat disesuaikan berdasarkan kesiapan; format yang belum siap tetap `unsupported`. Testing skill bekerja pada proyek pengguna dan menggunakan adapter/policy yang sama, bukan instalasi atau eksekusi terselubung.
+- UAT per OS yang dinyatakan didukung membandingkan CLI dan agent untuk planning, preview, approval/penolakan, perubahan manifest, hasil, dan `blocked` pada capability yang tidak tersedia. Catat OS, versi, jalur, bukti dan batas; jangan klaim parity atau dukungan OS tanpa UAT lulus.
 
 ## Risks / Trade-offs
 

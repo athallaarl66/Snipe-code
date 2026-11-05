@@ -7,11 +7,15 @@ Menjalankan quality gate dengan status hasil yang jujur dan pengamanan eksplisit
 ## ADDED Requirements
 
 ### Requirement: Target dan efek gate terlihat sebelum eksekusi
-Sebelum menjalankan gate, sistem MUST menyatakan command, direktori kerja, dan efek yang diketahui; pengguna MUST dapat membatasi gate yang dipilih.
+Sebelum menjalankan gate, sistem MUST menampilkan preview command, direktori kerja, target, data, dan efek yang diketahui; pengguna MUST dapat membatasi gate yang dipilih. Install, test, akses endpoint, dan transmisi data MUST memerlukan persetujuan eksplisit pengguna atas scope yang ditampilkan sebelum aksi dilakukan; scope berubah atau tidak diketahui MUST membatalkan approval dan memblokir aksi sampai ditinjau ulang.
 
 #### Scenario: Gate dipilih secara eksplisit
 - **WHEN** pengguna menjalankan gate pada proyek yang dikenali
-- **THEN** sistem menampilkan command dan direktori kerja sebelum menjalankan gate
+- **THEN** sistem menampilkan preview dan memperoleh persetujuan eksplisit pengguna sebelum menjalankan gate yang melakukan install, test, akses endpoint, atau transmisi data
+
+#### Scenario: Approval tidak tersedia atau scope berubah
+- **WHEN** pengguna belum menyetujui preview atau scope aksi berubah setelah persetujuan
+- **THEN** gate terkait berstatus `blocked` sampai preview dan persetujuan eksplisit untuk scope aktual tersedia
 
 #### Scenario: Preflight menolak target
 - **WHEN** preflight keselamatan mengidentifikasi target database produksi atau ambigu

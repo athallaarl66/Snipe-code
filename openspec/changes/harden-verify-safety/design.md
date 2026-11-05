@@ -15,7 +15,7 @@ Lihat `proposal.md` untuk motivasi dan `specs/safe-verification/spec.md` untuk k
 - Perluas model outcome dengan `blocked` serta status agregat yang memisahkan complete-pass, partial/unknown, failure, dan no execution. Pilih exit code partial melalui design CLI yang diuji terhadap consumer lama; jangan mengubah code diam-diam.
 - Preflight hanya dapat memblokir fakta yang dapat diperiksa lokal; redaksi URL/credential. Jika konfigurasi DB unresolved, hasil `blocked`; jangan mengandalkan nama database atau variable tunggal.
 - Gunakan runner injection yang telah ada untuk memastikan test status/preflight tidak spawn command nyata. Isolasi yang tidak disediakan platform tidak boleh disimulasikan sebagai sandbox.
-- Sebelum menambahkan dependency install/hook, modelkan effects dan minta izin untuk mode yang dapat menulis/mengakses network. Pertahankan flag opt-out yang ada.
+- Preview command, target, data, dan efek lalu minta persetujuan eksplisit pengguna sebelum install, test, akses endpoint, atau transmisi data, termasuk gate dan hook existing. Ikat approval pada scope yang ditinjau; scope berubah atau tidak diketahui memblokir aksi sampai ada review dan approval baru. Agent tidak dapat menyetujui atas nama pengguna; flag opt-out tidak melewati policy ini.
 
 ## Risks / Trade-offs
 

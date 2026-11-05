@@ -7,7 +7,7 @@ Menjalankan test yang telah direview dalam batas proses, filesystem, network, da
 ## ADDED Requirements
 
 ### Requirement: Setiap run memerlukan consent dan ringkasan command
-Runner MUST menampilkan command, working directory, endpoint, environment names, mount, network policy, dan output yang diminta sebelum pengguna mengizinkan eksekusi.
+Runner MUST menampilkan manifest command, working directory, endpoint, environment names, mount, network policy, output, timeout, dan efek instalasi sebelum pengguna mengizinkan eksekusi. Approval MUST terikat hash manifest yang ditinjau dan berlaku untuk satu run saja; perubahan manifest MUST membatalkan approval.
 
 #### Scenario: Pengguna menyetujui run yang ditinjau
 - **WHEN** pengguna menyetujui ringkasan run yang tidak berubah
@@ -52,3 +52,21 @@ Runner MUST tidak mengunduh atau memasang dependency/tool kecuali langkah terseb
 #### Scenario: Plan memasukkan install gate
 - **WHEN** daftar command mencakup langkah install atau fetch dependency
 - **THEN** runner menyatakan side effect dan network access sebelum meminta consent; tanpa approval gate tidak berjalan
+
+### Requirement: Preview dan approval berlaku untuk semua aksi berisiko
+CLI dan agent MUST meminta persetujuan eksplisit pengguna setelah preview untuk install, test, akses endpoint, dan transmisi data sebelum masing-masing aksi dijalankan. Preview MUST mencakup command atau aksi, target, data, efek, dan izin yang relevan; approval MUST terikat pada scope tersebut dan tidak boleh diberikan agent atas nama pengguna. Scope berubah atau tidak diketahui MUST membatalkan approval dan memblokir aksi sampai ditinjau ulang.
+
+#### Scenario: Agent meminta menjalankan test atau mengirim data
+- **WHEN** agent mengusulkan test, akses endpoint, install, atau transmisi data
+- **THEN** sistem menampilkan preview kepada pengguna dan tidak melakukan aksi sampai pengguna menyetujui scope yang tepat
+
+#### Scenario: Tidak ada kanal persetujuan
+- **WHEN** preview atau persetujuan eksplisit pengguna tidak tersedia
+- **THEN** aksi berstatus `blocked` tanpa install, test, akses endpoint, atau transmisi data
+
+### Requirement: UAT parity CLI dan agent per OS
+Setiap OS yang dinyatakan didukung MUST memiliki bukti UAT parity CLI dan agent untuk planning, preview, approval dan penolakan, perubahan scope, hasil, dan boundary yang tidak tersedia. OS atau boundary yang belum diverifikasi MUST tidak diklaim didukung dan eksekusi yang memerlukannya MUST `blocked`.
+
+#### Scenario: Boundary OS belum diverifikasi
+- **WHEN** UAT atau boundary isolasi OS yang diperlukan belum terbukti
+- **THEN** sistem tidak mengklaim dukungan atau parity dan memblokir eksekusi yang memerlukan boundary tersebut
