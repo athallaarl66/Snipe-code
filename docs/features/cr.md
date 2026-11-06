@@ -97,6 +97,22 @@ SQLite **memori lokal produk**, bukan DB proyek target: skema konseptual `projec
 
 Setiap milestone hanya diterima bila bukti hasil bisa diulang; **belum ada AC berikut yang dieksekusi oleh CR ini**. Bila target angka akurasi/ambang dipilih kemudian, versioning dan korpus uji disetujui sebelum gate diberlakukan; tidak menjanjikan semua rule/language serentak.
 
+### 6.1 Urutan pengerjaan OpenSpec
+
+Urutan serial yang direkomendasikan memakai dependency yang tertulis pada change aktif. Satu change diarsipkan hanya setelah seluruh task dan bukti verifikasinya selesai.
+
+| Urutan | Change OpenSpec | Tahap CR | Alasan dan syarat lanjut |
+| --- | --- | --- | --- |
+| 1 | `harden-audit-cli` | M0 | Tutup pembacaan symlink `.env`/`.env.local` di luar root, pisahkan scan/export, kunci parser, dan koreksi dokumentasi side effect. Change ini fondasi eksplisit `add-scan-history`. |
+| 2 | `harden-verify-safety` | M0 | Setelah batas audit aman, ubah `unavailable` menjadi non-pass, tambahkan preflight DB/side effect, serta approval yang terikat scope. Runner QA tidak boleh dibangun di atas kontrak lama. |
+| 3 | `add-scan-history` | M1 | Membutuhkan kontrak scan/export dari change 1. Hasil kanonik, fingerprint, redaksi, dan SQLite lokal menjadi dasar SAST/SCA, quality gate, dan relasi plan/run QA. |
+| 4 | `add-static-dependency-analysis` | M2-M3 | Membutuhkan envelope hasil dari change 3. Rilis rule SAST dan adapter SCA per slice teruji, dengan snapshot offline dan status `unknown`. |
+| 5 | `add-quality-gates` | M2 | Membutuhkan fingerprint/history change 3 dan, untuk gate yang menilai SAST/SCA, status change 4. Semantik exit/output harus mengikuti change 2. |
+| 6 | `add-qa-planning-runner` | M4 | Perencanaan read-only dapat mulai setelah change 3. Task runner, sandbox, dan eksekusi tetap menunggu change 2 serta review batas isolasi OS; jika batas belum terbukti, statusnya `blocked`, bukan host execution. Selesaikan change ini setelah change 5 agar gate dan history yang dipakai QA sudah stabil. |
+| 7 | `clarify-cli-and-agent-workflows` | Di luar fondasi M0-M4 | Launcher dan wizard tidak memblokir fondasi CR. Verification report, workflow agent, dan dokumentasinya menunggu kontrak verify dari change 2; bagian workflow agent yang menjalankan test menunggu policy runner change 6. Menaruh change ini terakhir menghindari pengulangan help/report/agent copy. |
+
+`harden-audit-cli` dan `harden-verify-safety` boleh diteliti paralel, tetapi urutan archive tetap 1 lalu 2 agar perubahan kontrak dan dokumentasi mudah ditinjau. Jangan mulai change 3 sebelum change 1 diarsipkan. Jangan klaim quality gate SAST/SCA lengkap sebelum change 4 selesai. Jangan menjalankan runner QA pada host target sebelum preflight dan isolasi change 2 serta change 6 terbukti.
+
 | Tahap | Dependensi dan deliverable | Acceptance criteria terukur, termasuk negatif |
 | --- | --- | --- |
 | M0 — kontrak keselamatan dan kompatibilitas | Mulai dari parser/report dan risk `verify`; dokumentasi current state, matriks izin/side effect. | Kasus `audit` lama (`--export md/pdf,docx`, `--json`, exit 0/1/2/3) diuji regresi; unknown flag/dua positional ditolak pada interface baru tanpa salah scan; `scan` baru tidak menulis target, `export` hanya tujuan terpilih. `verify --only test` pada DB remote/ambigu diblokir sebelum spawn; unavailable terlihat non-pass meski gate lain lulus. Dokumen tak lagi menyebut `audit` read-only. AC negatif P0: symlink file `.env`/`.env.local` yang menunjuk file di luar root tidak dibaca dan konten target tidak ditulis ke laporan/JSON; verifikasi pula semantik symlink/junction Windows dan tolak traversal keluar root. |
