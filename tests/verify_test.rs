@@ -21,6 +21,11 @@ impl Fixture {
             COUNTER.fetch_add(1, Ordering::SeqCst)
         ));
         fs::create_dir_all(&path).expect("create fixture");
+        fs::write(
+            path.join(".env"),
+            "DB_CONNECTION=sqlite\nDB_DATABASE=:memory:\n",
+        )
+        .expect("write local-only fixture database target");
         Fixture { path }
     }
 
@@ -109,6 +114,102 @@ fn fake_runner<'a>(
         }
         Ok(())
     }
+}
+
+fn approved_run(
+    root: &Path,
+    options: &Options,
+    runner: verify::Runner<'_>,
+) -> Result<verify::Report, String> {
+    verify::run_with_approval(root, options, runner, &|_, _, _| true)
+}
+
+#[test]
+fn missing_approval_blocks_test_before_runner() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
+    let options = Options {
+        path: fixture.path().to_path_buf(),
+        only: Some(Gate::Test),
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let report = verify::run_with_approval(
+        fixture.path(),
+        &options,
+        &fake_runner(&seen, None, None),
+        &|_, _, _| false,
+    )
+    .expect("run");
+
+    assert!(seen.borrow().is_empty());
+    assert_eq!(report.count("blocked"), 1);
+    assert_eq!(report.status(), verify::OverallStatus::NoExecution);
+}
+
+#[test]
+fn unknown_or_remote_database_target_blocks_install_and_test_before_runner() {
+    let unknown = Fixture::new();
+    unknown.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
+    fs::remove_file(unknown.path().join(".env")).expect("remove fixture DB config");
+    let options = Options {
+        path: unknown.path().to_path_buf(),
+        only: None,
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let report = approved_run(unknown.path(), &options, &fake_runner(&seen, None, None))
+        .expect("unknown target report");
+    assert!(seen.borrow().is_empty());
+    assert_eq!(report.count("blocked"), 2);
+    assert_eq!(report.status(), verify::OverallStatus::NoExecution);
+
+    let remote = Fixture::new();
+    remote.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
+    remote.write(
+        ".env",
+        "DB_HOST=db.example.net\nDB_DATABASE=app_test\nDB_PASSWORD=fixture-secret\n",
+    );
+    let options = Options {
+        path: remote.path().to_path_buf(),
+        only: Some(Gate::Test),
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let report = approved_run(remote.path(), &options, &fake_runner(&seen, None, None))
+        .expect("remote target report");
+    assert!(seen.borrow().is_empty());
+    assert_eq!(report.count("blocked"), 1);
+    let detail = report.parts[0].outcomes[0].state.detail().unwrap();
+    assert!(detail.contains("remote"));
+    assert!(!detail.contains("fixture-secret"));
+}
+
+#[test]
+fn production_like_database_is_blocked_even_when_local_or_named_test() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
+    fixture.write(
+        ".env",
+        "DB_HOST=localhost\nDB_DATABASE=production_test\nDB_PASSWORD=fixture-secret\n",
+    );
+    let options = Options {
+        path: fixture.path().to_path_buf(),
+        only: Some(Gate::Test),
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let report = approved_run(fixture.path(), &options, &fake_runner(&seen, None, None))
+        .expect("production-like target report");
+    assert!(seen.borrow().is_empty());
+    assert_eq!(report.count("blocked"), 1);
+    let detail = report.parts[0].outcomes[0].state.detail().unwrap();
+    assert!(detail.contains("production-like"));
+    assert!(!detail.contains("fixture-secret"));
 }
 
 #[test]
@@ -234,6 +335,84 @@ fn multiple_parts_run_against_their_own_directory() {
 }
 
 #[test]
+fn report_tracks_all_gate_states_and_serializes_aggregate_status() {
+    use verify::{GateOutcome, OverallStatus, PartOutcome, Report};
+
+    let report = Report {
+        root: PathBuf::from("fixture"),
+        parts: vec![PartOutcome {
+            label: ".".to_string(),
+            ecosystem: "npm",
+            outcomes: vec![
+                GateOutcome {
+                    gate: Gate::Install,
+                    state: GateState::Passed,
+                    command: "npm install".to_string(),
+                },
+                GateOutcome {
+                    gate: Gate::Lint,
+                    state: GateState::Unavailable("missing tool".to_string()),
+                    command: "npm run lint".to_string(),
+                },
+                GateOutcome {
+                    gate: Gate::Typecheck,
+                    state: GateState::Blocked("approval required".to_string()),
+                    command: "npm run typecheck".to_string(),
+                },
+                GateOutcome {
+                    gate: Gate::Test,
+                    state: GateState::Failed("test failed".to_string()),
+                    command: "npm run test".to_string(),
+                },
+                GateOutcome {
+                    gate: Gate::Build,
+                    state: GateState::NotApplicable("no build script".to_string()),
+                    command: String::new(),
+                },
+            ],
+        }],
+    };
+
+    for state in [
+        "passed",
+        "unavailable",
+        "blocked",
+        "failed",
+        "not-applicable",
+    ] {
+        assert_eq!(report.count(state), 1, "state {state}");
+    }
+    assert_eq!(report.status(), OverallStatus::Failed);
+    let json: serde_json::Value =
+        serde_json::from_str(&verify::render_json(&report).expect("JSON")).expect("valid JSON");
+    assert_eq!(json["status"], "failed");
+    assert_eq!(json["parts"][0]["gates"][2]["status"], "blocked");
+    assert!(verify::summary(&report).contains("1 blocked"));
+
+    let partial = Report {
+        parts: vec![PartOutcome {
+            label: ".".to_string(),
+            ecosystem: "npm",
+            outcomes: vec![
+                GateOutcome {
+                    gate: Gate::Install,
+                    state: GateState::Passed,
+                    command: "npm install".to_string(),
+                },
+                GateOutcome {
+                    gate: Gate::Lint,
+                    state: GateState::Unavailable("missing tool".to_string()),
+                    command: "npm run lint".to_string(),
+                },
+            ],
+        }],
+        ..Report::default()
+    };
+    assert_eq!(partial.status(), OverallStatus::Incomplete);
+    assert_eq!(verify::exit_status(&partial), 4);
+}
+
+#[test]
 fn unrecognized_directory_has_no_gates_and_nothing_executes() {
     let fixture = Fixture::new();
     fixture.write("notes.txt", "not a project\n");
@@ -245,7 +424,7 @@ fn unrecognized_directory_has_no_gates_and_nothing_executes() {
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let report =
-        verify::run(fixture.path(), &options, &fake_runner(&seen, None, None)).expect("run");
+        approved_run(fixture.path(), &options, &fake_runner(&seen, None, None)).expect("run");
     assert!(report.parts.is_empty());
     assert!(seen.borrow().is_empty(), "no command may run");
     assert_eq!(verify::exit_status(&report), 3);
@@ -265,7 +444,7 @@ fn gate_states_are_recorded_in_the_fixed_order() {
         skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
-    let report = verify::run(
+    let report = approved_run(
         fixture.path(),
         &options,
         &fake_runner(&seen, Some("run build"), None),
@@ -304,7 +483,7 @@ fn gate_states_are_recorded_in_the_fixed_order() {
 }
 
 #[test]
-fn unavailable_gate_is_reported_but_only_blocks_success_when_nothing_ran() {
+fn unavailable_gate_blocks_success_even_when_another_gate_passes() {
     let fixture = Fixture::new();
     fixture.write(
         "package.json",
@@ -316,18 +495,32 @@ fn unavailable_gate_is_reported_but_only_blocks_success_when_nothing_ran() {
         security: false,
         skip_install: false,
     };
-
-    // A missing npm means nothing ran at all, which is not success.
     let seen = std::cell::RefCell::new(Vec::new());
-    let report = verify::run(
-        fixture.path(),
-        &options,
-        &fake_runner(&seen, None, Some("npm")),
-    )
-    .expect("run");
-    assert_eq!(report.count("unavailable"), 2);
-    assert_eq!(verify::exit_status(&report), 3, "nothing executed");
+    let runner = |spec: &CommandSpec, _label: &str| {
+        let display = spec.display();
+        seen.borrow_mut().push(display.clone());
+        if display == "npm install" {
+            Err(RunError::Unavailable(
+                "npm unavailable: not found".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
+    };
 
+    let report = approved_run(fixture.path(), &options, &runner).expect("run");
+    assert_eq!(report.count("unavailable"), 1);
+    assert_eq!(report.count("passed"), 1);
+    assert_eq!(
+        verify::exit_status(&report),
+        4,
+        "partial coverage is non-success"
+    );
+    assert_eq!(report.status(), verify::OverallStatus::Incomplete);
+}
+
+#[test]
+fn unavailable_only_run_exits_three() {
     let fixture = Fixture::new();
     fixture.write("go.mod", "module example.com/app\n");
     let options = Options {
@@ -337,7 +530,7 @@ fn unavailable_gate_is_reported_but_only_blocks_success_when_nothing_ran() {
         skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
-    let report = verify::run(
+    let report = approved_run(
         fixture.path(),
         &options,
         &fake_runner(&seen, None, Some("go")),
@@ -352,6 +545,7 @@ fn unavailable_gate_is_reported_but_only_blocks_success_when_nothing_ran() {
     assert_eq!(report.count("unavailable"), 4);
     assert_eq!(report.executed(), 0);
     assert_eq!(verify::exit_status(&report), 3);
+    assert_eq!(report.status(), verify::OverallStatus::NoExecution);
 }
 
 #[test]
@@ -369,7 +563,7 @@ fn only_selector_restricts_the_run_and_rejects_a_gate_that_does_not_apply() {
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let report =
-        verify::run(fixture.path(), &options, &fake_runner(&seen, None, None)).expect("run");
+        approved_run(fixture.path(), &options, &fake_runner(&seen, None, None)).expect("run");
     assert_eq!(seen.borrow().as_slice(), ["npm run test"]);
     assert_eq!(
         outcomes(&report),
@@ -384,7 +578,7 @@ fn only_selector_restricts_the_run_and_rejects_a_gate_that_does_not_apply() {
         skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
-    let error = verify::run(fixture.path(), &rejected, &fake_runner(&seen, None, None))
+    let error = approved_run(fixture.path(), &rejected, &fake_runner(&seen, None, None))
         .expect_err("selector must be rejected");
     assert!(error.contains("build"), "{error}");
     assert!(error.contains("does not apply"), "{error}");
@@ -450,7 +644,7 @@ fn failing_scan_fails_the_run_and_the_gate_is_absent_unless_requested() {
         skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
-    let report = verify::run(
+    let report = approved_run(
         fixture.path(),
         &without,
         &fake_runner(&seen, Some("audit"), None),
@@ -471,7 +665,7 @@ fn failing_scan_fails_the_run_and_the_gate_is_absent_unless_requested() {
         skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
-    let report = verify::run(
+    let report = approved_run(
         fixture.path(),
         &with,
         &fake_runner(&seen, Some("npm audit"), None),
@@ -497,7 +691,7 @@ fn passing_scan_passes_the_gate() {
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let report =
-        verify::run(fixture.path(), &options, &fake_runner(&seen, None, None)).expect("run");
+        approved_run(fixture.path(), &options, &fake_runner(&seen, None, None)).expect("run");
     let security = report.parts[0]
         .outcomes
         .iter()
@@ -557,7 +751,7 @@ fn missing_directory_is_a_usage_error() {
         skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
-    let error = verify::run(&options.path, &options, &fake_runner(&seen, None, None))
+    let error = approved_run(&options.path, &options, &fake_runner(&seen, None, None))
         .expect_err("missing path");
     assert!(error.contains("not a directory"), "{error}");
 }
@@ -577,7 +771,7 @@ fn no_install_skips_the_install_gate_and_runs_the_rest() {
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let report =
-        verify::run(fixture.path(), &options, &fake_runner(&seen, None, None)).expect("run");
+        approved_run(fixture.path(), &options, &fake_runner(&seen, None, None)).expect("run");
 
     let install = report.parts[0]
         .outcomes

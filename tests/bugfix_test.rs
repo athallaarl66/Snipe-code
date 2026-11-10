@@ -194,6 +194,82 @@ fn test_audit_ignores_placeholder_dotenv() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn test_audit_skips_dotenv_symlink_outside_root() {
+    use std::os::unix::fs::symlink;
+
+    let dir = temp_project("dotenv-link-root");
+    let outside = temp_project("dotenv-link-outside");
+    let secret = "outside-root-secret-canary";
+    let outside_env = outside.join("secrets.env");
+    fs::write(&outside_env, format!("DB_PASSWORD={secret}\n")).unwrap();
+    symlink(&outside_env, dir.join(".env")).expect("create fixture symlink");
+
+    let report = audit::run_audit_report(&dir.to_string_lossy(), "md").unwrap();
+    let json = audit::render_json(&report).unwrap();
+    let markdown = fs::read_to_string(dir.join("Audit_Report.md")).unwrap();
+
+    assert!(
+        report
+            .findings
+            .iter()
+            .all(|finding| !finding.file.ends_with(".env")),
+        "symlinked .env must not produce findings: {:?}",
+        report.findings
+    );
+    assert!(
+        !json.contains(secret),
+        "JSON exposed external content: {json}"
+    );
+    assert!(
+        !markdown.contains(secret),
+        "Markdown exposed external content: {markdown}"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&outside);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_audit_skips_junction_outside_root() {
+    use std::process::Command;
+
+    let dir = temp_project("junction-root");
+    let outside = temp_project("junction-outside");
+    let secret = "outside-root-secret-canary";
+    fs::write(outside.join(".env"), format!("DB_PASSWORD={secret}\n")).unwrap();
+
+    let output = Command::new("cmd.exe")
+        .args(["/C", "mklink", "/J"])
+        .arg(dir.join("linked"))
+        .arg(&outside)
+        .output()
+        .expect("create junction fixture");
+    assert!(
+        output.status.success(),
+        "mklink /J failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let report = audit::run_audit_report(&dir.to_string_lossy(), "md").unwrap();
+    let json = audit::render_json(&report).unwrap();
+    let markdown = fs::read_to_string(dir.join("Audit_Report.md")).unwrap();
+
+    assert!(
+        !json.contains(secret),
+        "JSON exposed junction target: {json}"
+    );
+    assert!(
+        !markdown.contains(secret),
+        "Markdown exposed junction target: {markdown}"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&outside);
+}
+
 #[test]
 fn test_audit_ignores_keyword_only_lines_but_keeps_literal_risks() {
     let safe = temp_project("audit-safe-pairs");

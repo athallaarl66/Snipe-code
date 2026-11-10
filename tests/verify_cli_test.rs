@@ -64,7 +64,11 @@ fn per_command_help_documents_options_and_exit_status() {
         "--only <gate>",
         "--security",
         "--no-install",
+        "--json",
+        "KEAMANAN",
+        "blocked",
         "EXIT STATUS",
+        "4   hasil parsial",
         "not-applicable",
         "audit",
     ] {

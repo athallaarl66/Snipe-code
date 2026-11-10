@@ -78,7 +78,9 @@ fn verify_generated(root: &Path, frontend: &str, backend: &str) -> Result<(), St
         security: false,
         skip_install: false,
     };
-    let report = verify::run(root, &options, &verify::exec::run)?;
+    // This harness created the disposable workspace and generated this project;
+    // no caller-supplied path reaches this approval callback.
+    let report = verify::run_with_approval(root, &options, &verify::exec::run, &|_, _, _| true)?;
     let stack = if backend == "none" { frontend } else { backend };
     if report.parts.is_empty() {
         return Err(format!(

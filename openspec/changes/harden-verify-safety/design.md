@@ -2,7 +2,7 @@
 
 ## Context
 
-Lihat `proposal.md` untuk motivasi dan `specs/safe-verification/spec.md` untuk kontrak. `verify` membuat gate plan dari manifest, menjalankan command melalui runner di direktori project, dan mewarisi environment proses. Exit status saat ini `0` ketika ada gate dieksekusi dan tak ada gate gagal, walaupun gate lain unavailable.
+`verify` berbagi engine dengan `verify-generated`. CLI menerima path pilihan caller; CI binary membuat workspace sementara baru, generate project sendiri, verifikasi, lalu menghapus workspace. Approval harus membedakan caller ini tanpa menyediakan bypass untuk path arbitrer. Audit juga menggabungkan scan dan export; dotfile traversal punya jalur terpisah dan `audit --json` masih menulis report.
 
 ## Goals / Non-Goals
 
@@ -15,7 +15,12 @@ Lihat `proposal.md` untuk motivasi dan `specs/safe-verification/spec.md` untuk k
 - Perluas model outcome dengan `blocked` serta status agregat yang memisahkan complete-pass, partial/unknown, failure, dan no execution. Pilih exit code partial melalui design CLI yang diuji terhadap consumer lama; jangan mengubah code diam-diam.
 - Preflight hanya dapat memblokir fakta yang dapat diperiksa lokal; redaksi URL/credential. Jika konfigurasi DB unresolved, hasil `blocked`; jangan mengandalkan nama database atau variable tunggal.
 - Gunakan runner injection yang telah ada untuk memastikan test status/preflight tidak spawn command nyata. Isolasi yang tidak disediakan platform tidak boleh disimulasikan sebagai sandbox.
-- Preview command, target, data, dan efek lalu minta persetujuan eksplisit pengguna sebelum install, test, akses endpoint, atau transmisi data, termasuk gate dan hook existing. Ikat approval pada scope yang ditinjau; scope berubah atau tidak diketahui memblokir aksi sampai ada review dan approval baru. Agent tidak dapat menyetujui atas nama pengguna; flag opt-out tidak melewati policy ini.
+- CLI `verify` menampilkan command, direktori, efek diketahui, serta target DB yang sudah disamarkan. Minta persetujuan eksplisit per gate dan blokir jika approval tidak ada atau scope berubah. Tidak ada flag umum untuk melewati approval.
+- `verify-generated` memakai jalur approval internal yang tidak diekspos melalui CLI/library API umum. Otorisasi hanya berlaku pada workspace sementara yang baru dibuat dan project yang di-generate proses itu; database preflight tetap berlaku. Harness menolak path caller-arbitrary.
+- Audit scan menghasilkan data terstruktur tanpa write. Export membaca hasil berversi, mensyaratkan format dan output eksplisit, memvalidasi sebelum menulis. Command `audit` legacy tetap kompatibel dengan warning side-effect.
+- Root audit dikanonicalisasi; symlink/reparse point dilewati sebelum traversal dan setiap pembacaan diverifikasi berada dalam root.
+- Parser menolak flag tak dikenal/duplikat, path ganda, dan nilai hilang sebelum I/O. PDF dipaginasi dan seluruh finding diverifikasi lewat ekstraksi teks.
+- Scan history/SQLite tetap di luar scope.
 
 ## Risks / Trade-offs
 

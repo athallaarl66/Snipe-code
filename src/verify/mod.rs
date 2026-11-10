@@ -4,6 +4,9 @@
 pub mod detect;
 pub mod exec;
 
+use std::collections::BTreeMap;
+use std::fs;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 use exec::{CommandSpec, RunError};
@@ -94,10 +97,31 @@ pub enum GateState {
     Passed,
     /// The message is the command failure, without the part it belongs to.
     Failed(String),
+    /// The gate was refused by a safety preflight or approval policy.
+    Blocked(String),
     /// The project declares nothing for this gate.
     NotApplicable(String),
     /// The tool is not installed on this machine.
     Unavailable(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverallStatus {
+    Passed,
+    Failed,
+    Incomplete,
+    NoExecution,
+}
+
+impl OverallStatus {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::Incomplete => "incomplete",
+            Self::NoExecution => "no-execution",
+        }
+    }
 }
 
 impl GateState {
@@ -105,6 +129,7 @@ impl GateState {
         match self {
             GateState::Passed => "passed",
             GateState::Failed(_) => "failed",
+            GateState::Blocked(_) => "blocked",
             GateState::NotApplicable(_) => "not-applicable",
             GateState::Unavailable(_) => "unavailable",
         }
@@ -114,6 +139,7 @@ impl GateState {
         match self {
             GateState::Passed => None,
             GateState::Failed(message)
+            | GateState::Blocked(message)
             | GateState::NotApplicable(message)
             | GateState::Unavailable(message) => Some(message),
         }
@@ -158,6 +184,50 @@ impl Report {
             .count()
     }
 
+    pub fn status(&self) -> OverallStatus {
+        if self.count("failed") > 0 {
+            OverallStatus::Failed
+        } else if self.executed() == 0 {
+            OverallStatus::NoExecution
+        } else if self.count("unavailable") > 0 || self.count("blocked") > 0 {
+            OverallStatus::Incomplete
+        } else {
+            OverallStatus::Passed
+        }
+    }
+
+    pub fn blocked_reason(&self) -> Option<(&str, Gate, &str, &str)> {
+        self.parts.iter().find_map(|part| {
+            part.outcomes
+                .iter()
+                .find_map(|outcome| match &outcome.state {
+                    GateState::Blocked(message) => Some((
+                        part.label.as_str(),
+                        outcome.gate,
+                        outcome.command.as_str(),
+                        message.as_str(),
+                    )),
+                    _ => None,
+                })
+        })
+    }
+
+    pub fn incomplete_reason(&self) -> Option<(&str, Gate, &str, &str)> {
+        self.parts.iter().find_map(|part| {
+            part.outcomes
+                .iter()
+                .find_map(|outcome| match &outcome.state {
+                    GateState::Unavailable(message) => Some((
+                        part.label.as_str(),
+                        outcome.gate,
+                        outcome.command.as_str(),
+                        message.as_str(),
+                    )),
+                    _ => None,
+                })
+        })
+    }
+
     /// The first failing gate, as (part, gate, command, message).
     pub fn first_failure(&self) -> Option<(&str, Gate, &str, &str)> {
         self.parts.iter().find_map(|part| {
@@ -176,19 +246,15 @@ impl Report {
     }
 }
 
-/// `0` every applicable gate passed, `1` a gate failed, `3` nothing executed.
-/// Usage errors return `2` before a report exists.
+/// `0` complete pass, `1` failure, `2` usage error, `3` no execution,
+/// `4` partial or blocked verification.
 pub fn exit_status(report: &Report) -> i32 {
-    if report.parts.is_empty() {
-        return 3;
+    match report.status() {
+        OverallStatus::Passed => 0,
+        OverallStatus::Failed => 1,
+        OverallStatus::NoExecution => 3,
+        OverallStatus::Incomplete => 4,
     }
-    if report.first_failure().is_some() {
-        return 1;
-    }
-    if report.executed() == 0 {
-        return 3;
-    }
-    0
 }
 
 /// Recorded on the install gate when `--no-install` skips it.
@@ -271,7 +337,18 @@ pub type Runner<'a> = &'a dyn Fn(&CommandSpec, &str) -> Result<(), RunError>;
 ///
 /// `Err` is a usage error: a selector naming a gate that does not apply to the
 /// project. An empty report means nothing recognizable was found.
+pub type Approval<'a> = &'a dyn Fn(&GatePlan, &PartPlan, Option<&str>) -> bool;
+
 pub fn run(root: &Path, options: &Options, runner: Runner<'_>) -> Result<Report, String> {
+    run_with_approval(root, options, runner, &approve_interactively)
+}
+
+pub fn run_with_approval(
+    root: &Path,
+    options: &Options,
+    runner: Runner<'_>,
+    approval: Approval<'_>,
+) -> Result<Report, String> {
     if !root.is_dir() {
         return Err(format!("{} is not a directory", root.display()));
     }
@@ -303,13 +380,209 @@ pub fn run(root: &Path, options: &Options, runner: Runner<'_>) -> Result<Report,
             ));
         }
     }
-    let mut report = execute(&plans, options.only, runner);
+    let mut report = execute(&plans, options.only, runner, approval);
     report.root = root.to_path_buf();
     Ok(report)
 }
 
+fn approve_interactively(plan: &GatePlan, part: &PartPlan, database_target: Option<&str>) -> bool {
+    println!(
+        "Preflight: {} gate in {}",
+        plan.gate.name(),
+        part.dir.display()
+    );
+    for command in &plan.commands {
+        println!("  command: {}", command.display());
+        println!("  cwd: {}", command.dir.display());
+    }
+    println!("  effects: {}", gate_effects(plan.gate));
+    if let Some(target) = database_target {
+        println!("  database target: {target}");
+    }
+    if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
+        return false;
+    }
+    dialoguer::Confirm::new()
+        .with_prompt("Approve this exact gate scope?")
+        .default(false)
+        .interact()
+        .unwrap_or(false)
+}
+
+fn gate_effects(gate: Gate) -> &'static str {
+    match gate {
+        Gate::Install => "may download dependencies, write project files, and run install hooks",
+        Gate::Test => "may write files, access configured databases, or use network",
+        Gate::Security => "may access network to query vulnerability data",
+        Gate::Lint | Gate::Typecheck | Gate::Build => {
+            "project-defined command; may write files or use network"
+        }
+    }
+}
+
+fn classify_database_target(directory: &Path, gate: Gate) -> Result<String, String> {
+    let mut settings = BTreeMap::new();
+    for name in [".env", ".env.test", ".env.testing"] {
+        if gate == Gate::Install && name != ".env" {
+            continue;
+        }
+        if let Ok(text) = fs::read_to_string(directory.join(name)) {
+            settings.extend(parse_env(&text));
+        }
+    }
+    let environment: BTreeMap<_, _> = std::env::vars_os()
+        .filter_map(|(key, value)| {
+            let key = key.to_str()?.to_string();
+            is_database_setting(&key).then(|| (key, value.to_string_lossy().into_owned()))
+        })
+        .collect();
+    settings.extend(environment);
+    classify_settings(directory, &settings)
+}
+
+fn parse_env(text: &str) -> BTreeMap<String, String> {
+    text.lines()
+        .filter_map(|line| {
+            let (key, value) = line
+                .trim()
+                .strip_prefix("export ")
+                .unwrap_or(line.trim())
+                .split_once('=')?;
+            let key = key.trim();
+            if !is_database_setting(key) {
+                return None;
+            }
+            let value = value.trim().trim_matches(['\'', '"']);
+            Some((key.to_string(), value.to_string()))
+        })
+        .collect()
+}
+
+fn is_database_setting(key: &str) -> bool {
+    matches!(
+        key,
+        "DATABASE_URL"
+            | "DB_URL"
+            | "DB_CONNECTION"
+            | "DB_HOST"
+            | "DB_DATABASE"
+            | "PGHOST"
+            | "PGDATABASE"
+    )
+}
+
+fn classify_settings(
+    directory: &Path,
+    settings: &BTreeMap<String, String>,
+) -> Result<String, String> {
+    if let Some(url) = settings
+        .get("DATABASE_URL")
+        .or_else(|| settings.get("DB_URL"))
+    {
+        if url.starts_with("sqlite:") {
+            return Ok(format!(
+                "local SQLite target {}",
+                database_target_label(directory, url)
+            ));
+        }
+        let Some((host, database)) = parse_database_url(url) else {
+            return Err("database URL target is ambiguous; gate blocked".to_string());
+        };
+        return classify_host_database(&host, &database);
+    }
+
+    if settings
+        .get("DB_CONNECTION")
+        .is_some_and(|value| value.eq_ignore_ascii_case("sqlite"))
+    {
+        let database = settings
+            .get("DB_DATABASE")
+            .map(String::as_str)
+            .unwrap_or(":memory:");
+        if looks_production(database) {
+            return Err("production-like database target; gate blocked".to_string());
+        }
+        return Ok(format!(
+            "local SQLite target {}",
+            database_target_label(directory, database)
+        ));
+    }
+
+    let host = settings.get("DB_HOST").or_else(|| settings.get("PGHOST"));
+    let database = settings
+        .get("DB_DATABASE")
+        .or_else(|| settings.get("PGDATABASE"));
+    let (Some(host), Some(database)) = (host, database) else {
+        return Err("database target unknown; gate blocked".to_string());
+    };
+    classify_host_database(host, database)
+}
+
+fn classify_host_database(host: &str, database: &str) -> Result<String, String> {
+    if looks_production(host) || looks_production(database) {
+        return Err("production-like database target; gate blocked".to_string());
+    }
+    if !matches!(
+        host.to_lowercase().as_str(),
+        "localhost" | "127.0.0.1" | "::1"
+    ) {
+        return Err("remote or ambiguous database host; gate blocked".to_string());
+    }
+    Ok(format!("local database {database} at {host}"))
+}
+
+fn database_target_label(directory: &Path, target: &str) -> String {
+    if target == ":memory:" || target.ends_with(":memory:") {
+        return ":memory:".to_string();
+    }
+    let path = Path::new(target);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        directory.join(path)
+    };
+    resolved
+        .canonicalize()
+        .unwrap_or(resolved)
+        .display()
+        .to_string()
+}
+
+fn parse_database_url(url: &str) -> Option<(String, String)> {
+    let (_, rest) = url.split_once("://")?;
+    let authority_and_path = rest.split(['?', '#']).next()?;
+    let (authority, path) = authority_and_path.split_once('/')?;
+    let authority = authority.rsplit('@').next()?;
+    let host = if authority.starts_with('[') {
+        authority
+            .split(']')
+            .next()?
+            .trim_start_matches('[')
+            .to_string()
+    } else {
+        authority.split(':').next()?.to_string()
+    };
+    let database = path.split('/').next()?.to_string();
+    if host.is_empty() || database.is_empty() {
+        return None;
+    }
+    Some((host, database))
+}
+
+fn looks_production(value: &str) -> bool {
+    value
+        .to_lowercase()
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|token| matches!(token, "prod" | "production" | "live" | "main"))
+}
+
 /// Runs each plan's gates in the fixed order, recording one outcome per gate.
-pub fn execute(plans: &[PartPlan], only: Option<Gate>, runner: Runner<'_>) -> Report {
+fn execute(
+    plans: &[PartPlan],
+    only: Option<Gate>,
+    runner: Runner<'_>,
+    approval: Approval<'_>,
+) -> Report {
     let mut parts = Vec::new();
     for plan in plans {
         let label = plan.label();
@@ -339,6 +612,31 @@ pub fn execute(plans: &[PartPlan], only: Option<Gate>, runner: Runner<'_>) -> Re
                     gate,
                     state: GateState::NotApplicable(reason.clone()),
                     command: String::new(),
+                });
+                continue;
+            }
+            let database_target = if matches!(gate, Gate::Install | Gate::Test) {
+                match classify_database_target(&plan.dir, gate) {
+                    Ok(target) => Some(target),
+                    Err(reason) => {
+                        outcomes.push(GateOutcome {
+                            gate,
+                            state: GateState::Blocked(reason),
+                            command,
+                        });
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+            if !approval(planned, plan, database_target.as_deref()) {
+                outcomes.push(GateOutcome {
+                    gate,
+                    state: GateState::Blocked(
+                        "explicit approval for this exact scope was not granted".to_string(),
+                    ),
+                    command,
                 });
                 continue;
             }
@@ -399,19 +697,54 @@ pub fn print_report(report: &Report) {
     println!("{}", summary(report));
 }
 
+pub fn render_json(report: &Report) -> Result<String, String> {
+    let parts: Vec<_> = report
+        .parts
+        .iter()
+        .map(|part| {
+            let gates: Vec<_> = part
+                .outcomes
+                .iter()
+                .map(|outcome| {
+                    serde_json::json!({
+                        "gate": outcome.gate.name(),
+                        "status": outcome.state.name(),
+                        "command": outcome.command,
+                        "detail": outcome.state.detail(),
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "label": part.label,
+                "ecosystem": part.ecosystem,
+                "gates": gates,
+            })
+        })
+        .collect();
+    serde_json::to_string_pretty(&serde_json::json!({
+        "root": report.root,
+        "status": report.status().name(),
+        "exit_code": exit_status(report),
+        "parts": parts,
+    }))
+    .map_err(|error| error.to_string())
+}
+
 /// The overall result line.
 pub fn summary(report: &Report) -> String {
     let failed = report.count("failed");
     let passed = report.count("passed");
     let not_applicable = report.count("not-applicable");
     let unavailable = report.count("unavailable");
-    let result = match exit_status(report) {
-        0 => "PASS",
-        2 => "USAGE ERROR",
-        3 => "NOTHING EXECUTED",
-        _ => "FAIL",
+    let blocked = report.count("blocked");
+    let result = match report.status() {
+        OverallStatus::Passed => "PASS",
+        OverallStatus::Failed => "FAIL",
+        OverallStatus::Incomplete => "INCOMPLETE",
+        OverallStatus::NoExecution => "NOTHING EXECUTED",
     };
     format!(
-        "result: {result} — {passed} passed, {failed} failed, {not_applicable} not applicable, {unavailable} unavailable"
+        "result: {result} ({}) — {passed} passed, {failed} failed, {not_applicable} not applicable, {unavailable} unavailable, {blocked} blocked",
+        report.status().name()
     )
 }

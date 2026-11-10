@@ -154,6 +154,94 @@ fn test_audit_without_json_keeps_the_human_summary_on_stdout() {
     );
 }
 
+#[test]
+fn scan_json_is_read_only_and_export_requires_versioned_input() {
+    let fixture = audited_project("scan-export");
+    let before: Vec<_> = fs::read_dir(&fixture.dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    let (stdout, _, status) = run(&["scan", fixture.path(), "--json"]);
+    let after: Vec<_> = fs::read_dir(&fixture.dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(
+        before, after,
+        "scan must not change project directory entries"
+    );
+    assert_eq!(status, Some(0));
+    let scan: serde_json::Value = serde_json::from_str(&stdout).expect("scan JSON");
+    assert_eq!(scan["schema_version"], 1);
+    assert!(!fixture.dir.join("Audit_Report.md").exists());
+
+    let scan_file = fixture.write("scan.json", &stdout);
+    let (export_stdout, _, export_status) = run(&[
+        "export",
+        scan_file.to_str().unwrap(),
+        "--format",
+        "md",
+        "--output",
+        fixture.path(),
+    ]);
+    assert_eq!(export_status, Some(0), "{export_stdout}");
+    assert!(fixture.dir.join("Audit_Report.md").exists());
+
+    let bad = fixture.write("bad.json", "{}");
+    let (_, _, bad_status) = run(&[
+        "export",
+        bad.to_str().unwrap(),
+        "--format",
+        "md",
+        "--output",
+        fixture.path(),
+    ]);
+    assert_eq!(bad_status, Some(3));
+}
+
+#[test]
+fn export_rejects_unknown_format_and_missing_output_without_creating_files() {
+    let fixture = audited_project("export-errors");
+    let (scan_stdout, _, scan_status) = run(&["scan", fixture.path(), "--json"]);
+    assert_eq!(scan_status, Some(0));
+    let scan_file = fixture.write("scan.json", &scan_stdout);
+
+    let (_, unknown_stderr, unknown_status) = run(&[
+        "export",
+        scan_file.to_str().unwrap(),
+        "--format",
+        "exe",
+        "--output",
+        fixture.path(),
+    ]);
+    assert_eq!(unknown_status, Some(3));
+    assert!(unknown_stderr.contains("unsupported export format"));
+    assert!(!fixture.dir.join("Audit_Report.md").exists());
+
+    let missing = fixture.dir.join("missing-output");
+    let (_, missing_stderr, missing_status) = run(&[
+        "export",
+        scan_file.to_str().unwrap(),
+        "--format",
+        "md",
+        "--output",
+        missing.to_str().unwrap(),
+    ]);
+    assert_eq!(missing_status, Some(3));
+    assert!(missing_stderr.contains("output directory does not exist"));
+    assert!(!missing.exists());
+}
+
+#[test]
+fn audit_rejects_ambiguous_options_before_target_io() {
+    let fixture = Fixture::new("strict-audit");
+    let (stdout, stderr, status) = run(&["audit", fixture.path(), "--bogus"]);
+    assert_eq!(status, Some(2));
+    assert!(!fixture.dir.join("Audit_Report.md").exists());
+    assert!(stdout.is_empty());
+    assert!(stderr.contains("unknown option"));
+}
+
 // --- 2.3 documented in the help text ---------------------------------------
 
 #[test]

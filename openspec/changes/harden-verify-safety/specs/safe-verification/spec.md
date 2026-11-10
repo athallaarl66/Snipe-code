@@ -17,27 +17,28 @@ Sebelum menjalankan gate, sistem MUST menampilkan preview command, direktori ker
 - **WHEN** pengguna belum menyetujui preview atau scope aksi berubah setelah persetujuan
 - **THEN** gate terkait berstatus `blocked` sampai preview dan persetujuan eksplisit untuk scope aktual tersedia
 
+#### Scenario: Generated-project CI menjalankan fixture terisolasi
+- **WHEN** binary `verify-generated` membuat project di workspace sementara baru, hanya menjalankan manifest hasil generate, lalu menghapus workspace tersebut
+- **THEN** harness boleh menyetujui scope otomatis tanpa approval pengguna, tetapi tidak boleh menerima path project arbitrer atau melewati preflight target remote/production yang terdeteksi
+
+#### Scenario: Database test palsu
+- **WHEN** nama DB mengandung `test`, tetapi target tidak terbukti lokal dan aman
+- **THEN** sistem mengklasifikasikan target unknown/remote dan memblokir sebelum child process berjalan
+
+### Requirement: Gate unavailable bukan lulus
+Evaluator MUST membedakan `passed`, `failed`, `unavailable`, `blocked`, dan `not-applicable`; hasil keseluruhan MUST tidak menyatakan lulus penuh jika gate applicable unavailable atau blocked.
+
+#### Scenario: Satu gate lulus dan gate lain unavailable
+- **WHEN** sekurangnya satu gate berhasil tetapi gate applicable lain unavailable
+- **THEN** report mempertahankan status unavailable dan aggregate tidak menyatakan complete-pass
+
+#### Scenario: Semua gate unavailable atau blocked
+- **WHEN** tidak ada gate yang berhasil dijalankan
+- **THEN** command keluar non-sukses dan menjelaskan gate yang tidak berjalan
+
 #### Scenario: Preflight menolak target
 - **WHEN** preflight keselamatan mengidentifikasi target database produksi atau ambigu
 - **THEN** sistem tidak menjalankan command gate terkait dan mengembalikan status `blocked` beserta alasan tanpa membocorkan credential
-
-### Requirement: Gate unavailable tidak dihitung sebagai lulus
-Evaluator MUST membedakan `passed`, `failed`, `unavailable`, `blocked`, dan `not-applicable`; command keseluruhan MUST tidak menyatakan semua gate lulus jika gate wajib unavailable atau blocked.
-
-#### Scenario: Satu gate lulus dan gate lain unavailable
-- **WHEN** run mengeksekusi sekurangnya satu gate dengan sukses tetapi gate applicable lain berstatus unavailable
-- **THEN** laporan mempertahankan status unavailable dan status keseluruhan tidak menyatakan coverage lengkap atau lulus penuh
-
-#### Scenario: Tidak ada gate yang bisa dieksekusi
-- **WHEN** semua gate applicable berstatus unavailable atau blocked
-- **THEN** command mengembalikan status keseluruhan non-sukses dan menjelaskan gate yang tidak berjalan
-
-### Requirement: Efek samping dan limitasi gate terdokumentasi
-Setiap gate MUST melaporkan efek dependency, filesystem, atau network yang diketahui, dan dokumentasi MUST menjelaskan perubahan yang mungkin dibuat pada project tree.
-
-#### Scenario: Gate menjalankan dependency installation
-- **WHEN** gate menjalankan tool yang dapat mengunduh dependency atau mengubah manifest/lockfile
-- **THEN** laporan dan help/docs menyatakan efek yang diketahui sebelum command dijalankan
 
 ### Requirement: Database bersama tidak disentuh tanpa verifikasi target dan izin
 Gate yang dapat menjalankan test atau install hook MUST memblokir database produksi/remote/ambigu apabila konfigurasi targetnya tidak bisa dipastikan aman; nama DB yang mengandung kata `test` saja tidak membuktikan isolasi.

@@ -115,7 +115,9 @@ installed through cargo. No registry keys or system files are touched.
 | --- | --- |
 | `snipe-code` or `snipe-code new` | Wizard: template, stacks, database, project name, AI tools, generate |
 | `snipe-code analyze [PATH]` | Read-only report: languages and size, structure, entry points, dependencies, limits |
-| `snipe-code audit [PATH]` | Heuristic security audit with Markdown/PDF/DOCX export |
+| `snipe-code audit [PATH]` | Legacy heuristic audit with report export |
+| `snipe-code scan [PATH] --json` | Read-only audit; emits versioned JSON |
+| `snipe-code export <scan.json> --format <md,pdf,docx> --output <DIR>` | Export saved scan result to explicit directory |
 | `snipe-code verify [PATH]` | Runs the quality gates the project declares |
 | `snipe-code version` | The compiled version (alias `--version`) |
 | `snipe-code help [command]` | General help and per-command help |
@@ -127,16 +129,17 @@ installed through cargo. No registry keys or system files are touched.
 | --- | --- | --- | --- | --- |
 | `new` (or no argument) | the directory that should hold the new project. The project is created at `<current directory>/<name>`, so `cd` to its parent first. A path argument does not move it. | the embedded templates, or `SNIPE_CODE_TEMPLATES` | `<current directory>/<name>/`, then `git init` and an initial commit inside it | `0` generated, `1` generation failed, `2` usage error, `3` runtime error |
 | `analyze [PATH]` | anywhere; `PATH` defaults to the current directory | project files | nothing | `0`, `2`, `3` |
-| `audit [PATH]` | anywhere; `PATH` defaults to the current directory | project files | `Audit_Report.md`, `.pdf`, `.docx` inside `PATH` | `0`, `1`, `2`, `3` |
+| `audit [PATH]` | anywhere; legacy defaults to current directory | project files | legacy report files inside `PATH` | `0`, `1`, `2`, `3` |
+| `scan [PATH] --json` | anywhere | project files | JSON on stdout; no project writes | `0`, `2`, `3` |
+| `export <scan.json> --format <formats> --output <DIR>` | anywhere | versioned scan result | selected report files inside `DIR` | `0`, `2`, `3` |
 | `verify [PATH]` | the project directory, or point `PATH` at it | manifests | nothing by itself; the gates it runs write into the project | `0`, `1`, `2`, `3` |
 | `help`, `version`, `faq` | anywhere | nothing | nothing | `0` |
 
 Two of them change files on disk:
 
-- `audit` writes its report into the scanned directory, next to the code. Without a
-  terminal it skips the format prompt and exports Markdown, printing
-  `Terminal non-interaktif — default export: markdown.` first, so it works unchanged in
-  a script.
+- `scan` is read-only. Legacy `audit` writes reports into the scanned directory. Without
+  a terminal it skips the format prompt and exports Markdown, printing
+  `Terminal non-interaktif — default export: markdown.` first.
 - `verify` is not read-only. Its gates are the project's own commands, so `npm install`
   leaves `node_modules/` and `package-lock.json`, `go mod tidy` rewrites `go.mod` and
   adds `go.sum`, `dotnet restore` leaves `obj/`, and Maven leaves `target/`. Nothing is
@@ -221,19 +224,22 @@ directory. The `--json` output carries the same findings as the text report.
 ## audit: security scan
 
 ```bash
-snipe-code audit .                        # prompt for export format
-snipe-code audit . --export md            # Markdown only
-snipe-code audit . --export pdf,docx      # PDF and DOCX
-snipe-code audit . --export md --json     # report file plus JSON on stdout
+snipe-code scan . --json > scan.json
+snipe-code export scan.json --format md,pdf --output ./reports
+snipe-code audit . --export md --json     # legacy; writes report file and JSON
 ```
 
-Valid formats are `md`, `pdf`, and `docx`. Duplicates are normalized; an empty or
-unknown token is a usage error. With `--json` the report files are still written and
-the "exported files" summary moves to stderr, which keeps stdout parseable.
+`scan` performs read-only heuristic checks and emits JSON envelope with
+`schema_version: 1`. `export` validates that schema and writes selected `md`, `pdf`,
+or `docx` report into an existing output directory. It never rescans source.
 
-Each format is written into the scanned directory as `Audit_Report.md`,
-`Audit_Report.pdf`, and `Audit_Report.docx`. Those three names are in the `.gitignore`
-of a generated project, so a report does not end up in a commit by accident.
+Audit traversal skips symbolic links and Windows reparse points, including junctions,
+before opening their targets. Canonical-path checks also reject reads outside the
+selected root. This does not make audit a sandbox for concurrent filesystem changes.
+
+Legacy `audit` remains compatible during migration and writes `Audit_Report.*` into
+the scanned directory. It prints a side-effect notice to stderr. Legacy `--json` keeps
+valid JSON on stdout while report files are still written.
 
 Exit code:
 
@@ -268,36 +274,35 @@ Gates come from the project's manifests, not from this tool's stack list, so
 | `*.csproj` / `*.sln` | `dotnet restore`, `dotnet test --no-restore`, `dotnet build --no-restore` |
 
 Gate order is fixed: `install`, `lint`, `typecheck`, `test`, `build`, plus `security`
-when requested. Each gate reports one of four statuses:
+when requested. Each gate reports `passed`, `failed`, `unavailable`, `blocked`, or
+`not-applicable`. A missing tool or blocked action does not count as a pass. A run
+with mixed passed and unavailable/blocked gates has aggregate status `incomplete`.
 
-- `passed`: the command exited 0
-- `failed`: the command exited non-zero, and the gate name and command are printed
-- `not-applicable`: the project declares nothing for that gate
-- `unavailable`: the tool is not installed here, and the remaining gates still run
+Before each applicable gate, `verify` previews commands, working directories, and
+known effects, then asks for interactive approval tied to that gate scope. Without
+a terminal or approval, the gate is `blocked`. `install` and `test` also need a
+locally identifiable database target; unknown, remote, or production-like targets
+are blocked. Database values containing credentials are not printed. `--only` limits
+the preview and approval to selected gate.
 
 Exit code:
 
 - `0`: every applicable gate passed
 - `1`: a gate failed
 - `2`: usage error, for example `--only` naming a gate that does not apply
-- `3`: nothing ran, because the project was not recognized or no tool was available.
-  Such a run prints `tidak ada gate yang dijalankan` and exits without running a
-  single command.
+- `3`: no gate executed or no project gate was found (`tidak ada gate yang dijalankan`)
+- `4`: partial result; an applicable gate was unavailable or blocked after another
+  gate executed
 
-`verify` runs the project's own tools (`npm`, `composer`, `mvn`, `dotnet`, `go`,
-`cargo`), so it can use the network, exactly like that project's CI. `snipe-code`
-itself never touches the network; it only spawns commands the project already
-declares, and prints each command before running it. For a fully offline read-only
-analysis, use `snipe-code analyze` or `snipe-code audit`.
+Use `--json` for a machine-readable report containing per-gate and aggregate status.
 
-Those commands also write inside the project: `node_modules/` and `package-lock.json`
-from `npm install`, `go.sum` plus a tidied `go.mod` from `go mod tidy`, `obj/` from
-`dotnet restore`, `target/` from Maven. A run therefore leaves the tree different from
-how it started, and nothing is removed. `--no-install` skips the install gate, reports
-it as `not-applicable` with the reason `skipped by --no-install`, and runs every other
-gate, which is what you want when the dependencies are already installed. Combining
-`--no-install` with `--only install` is a usage error, since it asks for the gate and
-skips it in the same run.
+Preflight does not sandbox project commands or prove all their side effects. Approved
+commands run with host permissions and may access network or files beyond the project.
+They can write `node_modules/` and `package-lock.json` (`npm install`), update `go.sum`
+and `go.mod` (`go mod tidy`), and create `target/`, `obj/`, or `bin/`. Nothing is
+removed. `--no-install` skips install and reports `not-applicable`; combining it with
+`--only install` is a usage error. Use `snipe-code analyze` or `snipe-code audit` for
+read-only checks.
 
 `--security` uses the scanners each ecosystem ships: `npm audit`, `composer audit`,
 `dotnet list package --vulnerable`. Go and Java report this gate as `not-applicable`

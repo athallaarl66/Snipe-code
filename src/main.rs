@@ -21,6 +21,8 @@ fn main() {
         Some("new") => run_new_cmd(&args),
         Some("analyze") => run_analyze_cmd(&args),
         Some("audit") => run_audit_cmd(&args),
+        Some("scan") => run_scan_cmd(&args),
+        Some("export") => run_export_cmd(&args),
         Some("verify") => run_verify_cmd(&args),
         // Backward compatible: snipe-code --dry-run
         Some("--dry-run") => run_new_cmd(&args),
@@ -96,7 +98,88 @@ fn usage_error(message: &str) -> ! {
     std::process::exit(2);
 }
 
+fn run_scan_cmd(args: &[String]) {
+    let rest: Vec<String> = args.iter().skip(2).cloned().collect();
+    let mut path = ".";
+    let mut path_seen = false;
+    let mut json = false;
+    for token in &rest {
+        match token.as_str() {
+            "--json" if !json => json = true,
+            "--json" => usage_error("duplicate --json"),
+            option if option.starts_with('-') => usage_error(&format!("unknown option {option}")),
+            value if !path_seen => {
+                path = value;
+                path_seen = true;
+            }
+            _ => usage_error("multiple scan paths"),
+        }
+    }
+    let result = audit::run_audit_scan(path).unwrap_or_else(|error| {
+        eprintln!("scan: {error}");
+        std::process::exit(3);
+    });
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({"schema_version": 1, "result": result})
+        );
+    } else {
+        println!(
+            "Audit scan: {} HIGH, {} MEDIUM, {} LOW",
+            result.high, result.medium, result.low
+        );
+    }
+}
+
+fn run_export_cmd(args: &[String]) {
+    let rest: Vec<String> = args.iter().skip(2).cloned().collect();
+    let mut input = None;
+    let mut format = None;
+    let mut output = None;
+    let mut i = 0;
+    while i < rest.len() {
+        match rest[i].as_str() {
+            "--format" | "--output" => {
+                let option = rest[i].clone();
+                let value = rest
+                    .get(i + 1)
+                    .filter(|value| !value.starts_with('-'))
+                    .unwrap_or_else(|| usage_error(&format!("missing value for {option}")));
+                let slot = if option == "--format" {
+                    &mut format
+                } else {
+                    &mut output
+                };
+                if slot.replace(value.clone()).is_some() {
+                    usage_error(&format!("duplicate {option}"));
+                }
+                i += 2;
+            }
+            token if token.starts_with('-') => usage_error(&format!("unknown option {token}")),
+            token if input.is_none() => {
+                input = Some(token.to_string());
+                i += 1;
+            }
+            _ => usage_error("multiple scan result paths"),
+        }
+    }
+    let input = input.unwrap_or_else(|| usage_error("missing scan result path"));
+    let format = format.unwrap_or_else(|| usage_error("missing --format"));
+    let output = output.unwrap_or_else(|| usage_error("missing --output"));
+    audit::export_scan_json(Path::new(&input), &format, Path::new(&output)).unwrap_or_else(
+        |error| {
+            eprintln!("export: {error}");
+            std::process::exit(3);
+        },
+    );
+    println!("Exported report to {}", output);
+}
+
 fn run_audit_cmd(args: &[String]) {
+    if let Err(error) = audit::validate_audit_args(&args[2..]) {
+        usage_error(&format!("Usage error: {error}"));
+    }
     let mut path = ".".to_string();
     let mut export_opt: Option<String> = None;
     let mut json = false;
@@ -140,6 +223,7 @@ fn run_audit_cmd(args: &[String]) {
         }
     };
 
+    eprintln!("Compatibility notice: audit writes report files into target directory.");
     match audit::run_audit_report(&path, &export_format) {
         Ok(result) => {
             if json {
@@ -227,7 +311,9 @@ fn run_verify_cmd(args: &[String]) {
         println!("{}", VERIFY_HELP);
         return;
     }
-    let options = match verify::Options::parse(&rest) {
+    let json = rest.iter().any(|token| token == "--json");
+    let options_args: Vec<String> = rest.into_iter().filter(|token| token != "--json").collect();
+    let options = match verify::Options::parse(&options_args) {
         Ok(options) => options,
         Err(error) => {
             eprintln!("Usage error: {}", error);
@@ -244,7 +330,17 @@ fn run_verify_cmd(args: &[String]) {
     if report.parts.is_empty() {
         eprintln!("verify: no gates found in {}", options.path.display());
     }
-    verify::print_report(&report);
+    if json {
+        match verify::render_json(&report) {
+            Ok(text) => println!("{text}"),
+            Err(error) => {
+                eprintln!("verify: cannot render JSON: {error}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        verify::print_report(&report);
+    }
     std::process::exit(verify::exit_status(&report));
 }
 
@@ -262,6 +358,10 @@ fn print_command_help(cmd: &str) {
     match cmd {
         "analyze" => println!("{}", ANALYZE_HELP),
         "audit" => println!("{}", AUDIT_HELP),
+        "scan" => println!(
+            "snipe-code scan [PATH] [--json] — read-only audit; JSON uses schema_version 1"
+        ),
+        "export" => println!("snipe-code export <scan.json> --format <md,pdf,docx> --output <DIR>"),
         "verify" => println!("{}", VERIFY_HELP),
         "new" => println!("{}", NEW_HELP),
         "help" => print_help(),
@@ -282,7 +382,9 @@ COMMANDS
                (default jika tidak ada command)
     analyze    Laporkan isi proyek: bahasa dan ukurannya, struktur, entry point,
                dan dependency yang dideklarasikan (read-only, offline)
-    audit      Scan folder proyek dan export laporan security audit
+    audit      Legacy security audit dan export report
+    scan       Read-only audit; JSON versioned dengan --json
+    export     Export hasil scan ke direktori eksplisit
     verify     Periksa gate kualitas proyek yang sudah ada
     help       Tampilkan bantuan ini (alias: --help, -h)
     version    Tampilkan versi CLI yang di-compile (alias: --version)
@@ -516,13 +618,21 @@ OPTIONS
                     composer audit, dotnet list package --vulnerable
     --no-install    Lewati gate install. Gate lain tetap jalan, dan gate
                     install dilaporkan sebagai not-applicable
+    --json          Emit report terstruktur JSON ke stdout
     -h, --help      Bantuan perintah ini
+
+KEAMANAN
+    Setiap gate menampilkan command, direktori, efek yang diketahui, dan meminta
+    persetujuan interaktif untuk scope tepat. Tanpa terminal/approval, gate blocked.
+    Gate install/test diblokir bila target DB unknown, remote, atau production-like.
+    Preflight tidak sandbox command proyek dan tidak dapat membuktikan semua efek.
 
 EXIT STATUS
     0   semua gate yang berlaku lulus
     1   ada gate yang gagal (nama gate dan perintahnya dicetak)
     2   kesalahan pemakaian (opsi atau gate tidak dikenal)
-    3   tidak ada gate yang dijalankan (proyek tidak dikenali / tool tidak ada)
+    3   tidak ada gate dieksekusi atau tidak ada gate ditemukan
+    4   hasil parsial: ada gate unavailable atau blocked
 
 CONTOH
     snipe-code verify .
