@@ -342,21 +342,31 @@ pub fn render_json(result: &AuditResult) -> Result<String, String> {
     serde_json::to_string_pretty(result).map_err(|error| error.to_string())
 }
 
+pub fn render_scan_json(root: &Path, result: AuditResult) -> Result<String, String> {
+    let envelope = crate::history::ScanEnvelope::from_audit(root, result)?;
+    serde_json::to_string_pretty(&envelope).map_err(|error| error.to_string())
+}
+
 pub fn export_scan_json(input: &Path, formats: &str, output: &Path) -> Result<Vec<String>, String> {
     let formats = validate_formats(formats)?;
-    let text = fs::read_to_string(input).map_err(|error| error.to_string())?;
-    let value: serde_json::Value =
-        serde_json::from_str(&text).map_err(|error| error.to_string())?;
-    if value["schema_version"] != 1 {
-        return Err("unsupported scan result schema version".to_string());
-    }
-    let mut result: AuditResult =
-        serde_json::from_value(value["result"].clone()).map_err(|error| error.to_string())?;
+    let mut result = crate::history::read_scan(input)?.to_audit_result();
     if !output.is_dir() {
         return Err(format!(
             "output directory does not exist: {}",
             output.display()
         ));
+    }
+    for format in &formats {
+        let filename = match format.as_str() {
+            "md" => "Audit_Report.md",
+            "pdf" => "Audit_Report.pdf",
+            "docx" => "Audit_Report.docx",
+            _ => unreachable!("formats validated"),
+        };
+        let path = output.join(filename);
+        if path.symlink_metadata().is_ok() {
+            return Err(format!("output already exists: {}", path.display()));
+        }
     }
     let mut exported = Vec::new();
     for format in formats {

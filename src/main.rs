@@ -23,6 +23,7 @@ fn main() {
         Some("audit") => run_audit_cmd(&args),
         Some("scan") => run_scan_cmd(&args),
         Some("export") => run_export_cmd(&args),
+        Some("history") => run_history_cmd(&args),
         Some("verify") => run_verify_cmd(&args),
         // Backward compatible: snipe-code --dry-run
         Some("--dry-run") => run_new_cmd(&args),
@@ -103,10 +104,13 @@ fn run_scan_cmd(args: &[String]) {
     let mut path = ".";
     let mut path_seen = false;
     let mut json = false;
+    let mut save = false;
     for token in &rest {
         match token.as_str() {
             "--json" if !json => json = true,
             "--json" => usage_error("duplicate --json"),
+            "--save" if !save => save = true,
+            "--save" => usage_error("duplicate --save"),
             option if option.starts_with('-') => usage_error(&format!("unknown option {option}")),
             value if !path_seen => {
                 path = value;
@@ -119,17 +123,111 @@ fn run_scan_cmd(args: &[String]) {
         eprintln!("scan: {error}");
         std::process::exit(3);
     });
+    let envelope = snipe_code::history::ScanEnvelope::from_audit(Path::new(path), result)
+        .unwrap_or_else(|error| {
+            eprintln!("scan: {error}");
+            std::process::exit(3);
+        });
+    if save {
+        let data_dir = snipe_code::history::default_data_dir().unwrap_or_else(|error| {
+            eprintln!("history: {error}");
+            std::process::exit(3);
+        });
+        let mut store =
+            snipe_code::history::HistoryStore::open_in(&data_dir).unwrap_or_else(|error| {
+                eprintln!("history: {error}");
+                std::process::exit(3);
+            });
+        store.save(&envelope).unwrap_or_else(|error| {
+            eprintln!("history: {error}");
+            std::process::exit(3);
+        });
+        eprintln!("Saved scan history {}", envelope.result.run_id);
+    }
     if json {
         println!(
             "{}",
-            serde_json::json!({"schema_version": 1, "result": result})
+            serde_json::to_string_pretty(&envelope).expect("serialize scan result")
         );
     } else {
         println!(
             "Audit scan: {} HIGH, {} MEDIUM, {} LOW",
-            result.high, result.medium, result.low
+            envelope.result.high, envelope.result.medium, envelope.result.low
         );
     }
+}
+
+fn run_history_cmd(args: &[String]) {
+    let operation = args
+        .get(2)
+        .map(String::as_str)
+        .unwrap_or_else(|| usage_error("history requires list, show, export, or delete"));
+    if !matches!(
+        (operation, args.len()),
+        ("list", 3) | ("show", 4) | ("export", 6) | ("delete", 4)
+    ) || (operation == "export" && args[4] != "--output")
+        || (operation != "list" && args[3].starts_with('-'))
+        || (operation == "export" && args[5].starts_with('-'))
+    {
+        usage_error("invalid history arguments");
+    }
+    let data_dir = snipe_code::history::default_data_dir().unwrap_or_else(|error| {
+        eprintln!("history: {error}");
+        std::process::exit(3);
+    });
+    let mut store = snipe_code::history::HistoryStore::open_in(&data_dir).unwrap_or_else(|error| {
+        eprintln!("history: {error}");
+        std::process::exit(3);
+    });
+    match operation {
+        "list" if args.len() == 3 => {
+            let rows = store.list().unwrap_or_else(|error| history_error(&error));
+            for row in rows {
+                println!("{}\t{}\t{}", row.run_id, row.scanned_at_utc, row.project_id);
+            }
+        }
+        "show" if args.len() == 4 => {
+            let result = store
+                .get(&args[3])
+                .unwrap_or_else(|error| history_error(&error));
+            match result {
+                Some(result) => println!("{}", serde_json::to_string_pretty(&result).unwrap()),
+                None => history_error("unknown run id"),
+            }
+        }
+        "export" if args.len() == 6 && args[4] == "--output" => {
+            let result = store
+                .get(&args[3])
+                .unwrap_or_else(|error| history_error(&error));
+            let result = result.unwrap_or_else(|| history_error("unknown run id"));
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&args[5])
+                .unwrap_or_else(|error| history_error(&error.to_string()));
+            use std::io::Write;
+            serde_json::to_writer_pretty(&mut file, &result)
+                .and_then(|()| file.write_all(b"\n").map_err(serde_json::Error::io))
+                .unwrap_or_else(|error| history_error(&error.to_string()));
+            println!("Exported {}", args[5]);
+        }
+        "delete" if args.len() == 4 => {
+            let deleted = store
+                .delete_project(&args[3])
+                .unwrap_or_else(|error| history_error(&error));
+            if deleted == 0 {
+                history_error("unknown project id");
+            }
+            println!("Deleted {deleted} scan run(s) for project {}", args[3]);
+        }
+        "list" | "show" | "export" | "delete" => usage_error("invalid history arguments"),
+        _ => usage_error("unknown history operation"),
+    }
+}
+
+fn history_error(message: &str) -> ! {
+    eprintln!("history: {message}");
+    std::process::exit(3);
 }
 
 fn run_export_cmd(args: &[String]) {
@@ -359,9 +457,12 @@ fn print_command_help(cmd: &str) {
         "analyze" => println!("{}", ANALYZE_HELP),
         "audit" => println!("{}", AUDIT_HELP),
         "scan" => println!(
-            "snipe-code scan [PATH] [--json] — read-only audit; JSON uses schema_version 1"
+            "snipe-code scan [PATH] [--json] [--save] — read-only audit; --save stores local history"
         ),
         "export" => println!("snipe-code export <scan.json> --format <md,pdf,docx> --output <DIR>"),
+        "history" => println!(
+            "snipe-code history list | show <run-id> | export <run-id> --output <FILE> | delete <project-id>"
+        ),
         "verify" => println!("{}", VERIFY_HELP),
         "new" => println!("{}", NEW_HELP),
         "help" => print_help(),
@@ -383,8 +484,9 @@ COMMANDS
     analyze    Laporkan isi proyek: bahasa dan ukurannya, struktur, entry point,
                dan dependency yang dideklarasikan (read-only, offline)
     audit      Legacy security audit dan export report
-    scan       Read-only audit; JSON versioned dengan --json
+    scan       Read-only audit; JSON versioned dengan --json; --save simpan history lokal
     export     Export hasil scan ke direktori eksplisit
+    history    Simpan, lihat, export, dan hapus riwayat scan lokal
     verify     Periksa gate kualitas proyek yang sudah ada
     help       Tampilkan bantuan ini (alias: --help, -h)
     version    Tampilkan versi CLI yang di-compile (alias: --version)
@@ -405,6 +507,7 @@ OPTIONS
     --json         Hasil terstruktur (JSON) di stdout untuk new, analyze, dan
                    audit; progress serta pesan lain ke stderr
     --export <f>   Format export audit: md, pdf, docx (koma, contoh: pdf,docx)
+    --save         (scan) Simpan hasil ke SQLite lokal; default scan tidak menyimpan
     --only <g>     (verify) Batasi ke satu gate: install, lint, typecheck, test,
                    build, security
     --security     (verify) Tambahkan gate kerentanan dependency
@@ -425,6 +528,11 @@ CONTOH
     snipe-code audit .                  Scan folder ini (pilih format interaktif)
     snipe-code audit . --export pdf,docx
                                         Scan dan export PDF + DOCX langsung
+    snipe-code scan . --json --save     Scan lalu simpan hasil ke history lokal
+    snipe-code history list             Daftar run yang tersimpan
+    snipe-code history show <run-id>    Tampilkan hasil kanonik
+    snipe-code history delete <project-id>
+                                        Hapus run milik satu project lokal
     snipe-code verify .                 Periksa gate proyek di direktori ini
     snipe-code verify ../app --only test
                                         Jalankan hanya gate test

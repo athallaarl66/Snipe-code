@@ -8,6 +8,7 @@ pub mod date;
 pub mod docker;
 pub mod generator;
 pub mod git;
+pub mod history;
 pub mod stack;
 pub mod template;
 pub mod verify;

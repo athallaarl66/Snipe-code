@@ -116,8 +116,9 @@ installed through cargo. No registry keys or system files are touched.
 | `snipe-code` or `snipe-code new` | Wizard: template, stacks, database, project name, AI tools, generate |
 | `snipe-code analyze [PATH]` | Read-only report: languages and size, structure, entry points, dependencies, limits |
 | `snipe-code audit [PATH]` | Legacy heuristic audit with report export |
-| `snipe-code scan [PATH] --json` | Read-only audit; emits versioned JSON |
+| `snipe-code scan [PATH] [--json] [--save]` | Read-only audit; `--save` stores versioned JSON locally |
 | `snipe-code export <scan.json> --format <md,pdf,docx> --output <DIR>` | Export saved scan result to explicit directory |
+| `snipe-code history` | Manage locally saved scan runs; export writes JSON |
 | `snipe-code verify [PATH]` | Runs the quality gates the project declares |
 | `snipe-code version` | The compiled version (alias `--version`) |
 | `snipe-code help [command]` | General help and per-command help |
@@ -130,20 +131,22 @@ installed through cargo. No registry keys or system files are touched.
 | `new` (or no argument) | the directory that should hold the new project. The project is created at `<current directory>/<name>`, so `cd` to its parent first. A path argument does not move it. | the embedded templates, or `SNIPE_CODE_TEMPLATES` | `<current directory>/<name>/`, then `git init` and an initial commit inside it | `0` generated, `1` generation failed, `2` usage error, `3` runtime error |
 | `analyze [PATH]` | anywhere; `PATH` defaults to the current directory | project files | nothing | `0`, `2`, `3` |
 | `audit [PATH]` | anywhere; legacy defaults to current directory | project files | legacy report files inside `PATH` | `0`, `1`, `2`, `3` |
-| `scan [PATH] --json` | anywhere | project files | JSON on stdout; no project writes | `0`, `2`, `3` |
+| `scan [PATH] [--json] [--save]` | anywhere | project files | JSON on stdout; history DB only with `--save` | `0`, `2`, `3` |
 | `export <scan.json> --format <formats> --output <DIR>` | anywhere | versioned scan result | selected report files inside `DIR` | `0`, `2`, `3` |
+| `history` | anywhere | local history DB | JSON file for export; DB for delete | `0`, `2`, `3` |
 | `verify [PATH]` | the project directory, or point `PATH` at it | manifests | nothing by itself; the gates it runs write into the project | `0`, `1`, `2`, `3` |
 | `help`, `version`, `faq` | anywhere | nothing | nothing | `0` |
 
-Two of them change files on disk:
+Commands with side effects:
 
-- `scan` is read-only. Legacy `audit` writes reports into the scanned directory. Without
-  a terminal it skips the format prompt and exports Markdown, printing
+- `new` creates a project and initializes its Git repository.
+- `scan` is read-only unless passed `--save`, which writes to the local history database.
+- Legacy `audit` writes reports into the scanned directory. Without a terminal it skips
+  the format prompt and exports Markdown, printing
   `Terminal non-interaktif — default export: markdown.` first.
-- `verify` is not read-only. Its gates are the project's own commands, so `npm install`
-  leaves `node_modules/` and `package-lock.json`, `go mod tidy` rewrites `go.mod` and
-  adds `go.sum`, `dotnet restore` leaves `obj/`, and Maven leaves `target/`. Nothing is
-  deleted, but the tree is not the same afterwards. Pass `--no-install` to skip the
+- `verify` runs the project's commands. For example, `npm install` leaves `node_modules/`
+  and `package-lock.json`, `go mod tidy` rewrites `go.mod` and adds `go.sum`, `dotnet
+  restore` leaves `obj/`, and Maven leaves `target/`. Pass `--no-install` to skip the
   install gate and use the dependencies already on disk.
 
 ## new: scaffold a project
@@ -230,8 +233,30 @@ snipe-code audit . --export md --json     # legacy; writes report file and JSON
 ```
 
 `scan` performs read-only heuristic checks and emits JSON envelope with
-`schema_version: 1`. `export` validates that schema and writes selected `md`, `pdf`,
-or `docx` report into an existing output directory. It never rescans source.
+`schema_version: 2`. It does not create history unless called with `--save`.
+`audit --json` keeps its legacy `AuditResult` format. `scan --json` emits versioned
+envelope. `export` reads either format and writes selected `md`, `pdf`, or `docx` reports
+into an existing directory. It never rescans source.
+
+```bash
+snipe-code scan . --json --save
+snipe-code history list
+snipe-code history show <run-id>
+snipe-code history export <run-id> --output ./scan.json
+snipe-code history delete <project-id>
+```
+
+`history export` writes the canonical envelope as JSON. Use `export scan.json --format
+md,pdf,docx --output DIR` to render reports.
+
+History is opt-in. SQLite lives under `%LOCALAPPDATA%/snipe-code` on Windows,
+`~/Library/Application Support/snipe-code` on macOS, or `$XDG_DATA_HOME/snipe-code`
+(default `~/.local/share/snipe-code`) on Linux. Set `SNIPE_CODE_DATA_DIR` to select
+another location. History has no automatic expiry; delete a project's runs with its
+`project_id` from `history list`. Finding paths are relative, descriptions are redacted,
+and Unix files use owner-only permissions. SQLite is not encrypted; protect the user
+account and backups accordingly. Saving and reading history use no network or project
+database credentials.
 
 Audit traversal skips symbolic links and Windows reparse points, including junctions,
 before opening their targets. Canonical-path checks also reject reads outside the
