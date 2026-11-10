@@ -479,11 +479,26 @@ fn classify_settings(
         .get("DATABASE_URL")
         .or_else(|| settings.get("DB_URL"))
     {
-        if url.starts_with("sqlite:") {
+        if let Some(target) = url.strip_prefix("sqlite:") {
+            if target.starts_with("//")
+                || target.contains(['?', '#', '%', '$'])
+                || looks_production(target)
+            {
+                return Err(
+                    "SQLite target is ambiguous or production-like; gate blocked".to_string(),
+                );
+            }
             return Ok(format!(
                 "local SQLite target {}",
-                database_target_label(directory, url)
+                database_target_label(directory, target)
             ));
+        }
+        if !["postgres://", "postgresql://", "mysql://"]
+            .iter()
+            .any(|scheme| url.starts_with(scheme))
+            || url.contains(['?', '#', '%', '$'])
+        {
+            return Err("database URL target is ambiguous; gate blocked".to_string());
         }
         let Some((host, database)) = parse_database_url(url) else {
             return Err("database URL target is ambiguous; gate blocked".to_string());
@@ -495,10 +510,17 @@ fn classify_settings(
         .get("DB_CONNECTION")
         .is_some_and(|value| value.eq_ignore_ascii_case("sqlite"))
     {
+        if settings.contains_key("DB_HOST")
+            || settings.contains_key("PGHOST")
+            || settings.contains_key("PGDATABASE")
+        {
+            return Err("conflicting database settings; gate blocked".to_string());
+        }
         let database = settings
             .get("DB_DATABASE")
             .map(String::as_str)
-            .unwrap_or(":memory:");
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "SQLite target unknown; gate blocked".to_string())?;
         if looks_production(database) {
             return Err("production-like database target; gate blocked".to_string());
         }
@@ -570,10 +592,11 @@ fn parse_database_url(url: &str) -> Option<(String, String)> {
 }
 
 fn looks_production(value: &str) -> bool {
-    value
-        .to_lowercase()
-        .split(|character: char| !character.is_ascii_alphanumeric())
-        .any(|token| matches!(token, "prod" | "production" | "live" | "main"))
+    let value = value.to_lowercase();
+    value.contains("prod")
+        || value
+            .split(|character: char| !character.is_ascii_alphanumeric())
+            .any(|token| matches!(token, "live" | "main"))
 }
 
 /// Runs each plan's gates in the fixed order, recording one outcome per gate.
@@ -747,4 +770,63 @@ pub fn summary(report: &Report) -> String {
         "result: {result} ({}) — {passed} passed, {failed} failed, {not_applicable} not applicable, {unavailable} unavailable, {blocked} blocked",
         report.status().name()
     )
+}
+
+#[cfg(test)]
+mod database_safety_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_database_url_scheme_is_blocked() {
+        let settings = BTreeMap::from([(
+            "DATABASE_URL".to_string(),
+            "unsupported://localhost/test".to_string(),
+        )]);
+        assert!(classify_settings(Path::new("."), &settings).is_err());
+    }
+
+    #[test]
+    fn database_url_with_host_override_is_blocked() {
+        let settings = BTreeMap::from([(
+            "DATABASE_URL".to_string(),
+            "postgres://localhost/test?host=remote.example".to_string(),
+        )]);
+        assert!(classify_settings(Path::new("."), &settings).is_err());
+    }
+
+    #[test]
+    fn production_names_without_delimiters_are_blocked() {
+        let settings = BTreeMap::from([
+            ("DB_HOST".to_string(), "localhost".to_string()),
+            ("DB_DATABASE".to_string(), "productiontest".to_string()),
+        ]);
+        assert!(classify_settings(Path::new("."), &settings).is_err());
+    }
+
+    #[test]
+    fn sqlite_without_explicit_database_is_blocked() {
+        let settings = BTreeMap::from([("DB_CONNECTION".to_string(), "sqlite".to_string())]);
+        assert!(classify_settings(Path::new("."), &settings).is_err());
+    }
+
+    #[test]
+    fn conflicting_database_settings_are_blocked() {
+        let settings = BTreeMap::from([
+            ("DB_CONNECTION".to_string(), "sqlite".to_string()),
+            ("DB_DATABASE".to_string(), ":memory:".to_string()),
+            ("DB_HOST".to_string(), "remote.example".to_string()),
+        ]);
+        assert!(classify_settings(Path::new("."), &settings).is_err());
+    }
+
+    #[test]
+    fn sqlite_urls_with_remote_or_production_targets_are_blocked() {
+        for url in ["sqlite://remote.example/app", "sqlite:production.db"] {
+            let settings = BTreeMap::from([("DATABASE_URL".to_string(), url.to_string())]);
+            assert!(
+                classify_settings(Path::new("."), &settings).is_err(),
+                "{url}"
+            );
+        }
+    }
 }

@@ -386,8 +386,28 @@ fn report_tracks_all_gate_states_and_serializes_aggregate_status() {
     let json: serde_json::Value =
         serde_json::from_str(&verify::render_json(&report).expect("JSON")).expect("valid JSON");
     assert_eq!(json["status"], "failed");
-    assert_eq!(json["parts"][0]["gates"][2]["status"], "blocked");
-    assert!(verify::summary(&report).contains("1 blocked"));
+    for (index, state) in [
+        "passed",
+        "unavailable",
+        "blocked",
+        "failed",
+        "not-applicable",
+    ]
+    .iter()
+    .enumerate()
+    {
+        assert_eq!(json["parts"][0]["gates"][index]["status"], *state);
+    }
+    let summary = verify::summary(&report);
+    for count in [
+        "1 passed",
+        "1 failed",
+        "1 not applicable",
+        "1 unavailable",
+        "1 blocked",
+    ] {
+        assert!(summary.contains(count), "missing {count}: {summary}");
+    }
 
     let partial = Report {
         parts: vec![PartOutcome {

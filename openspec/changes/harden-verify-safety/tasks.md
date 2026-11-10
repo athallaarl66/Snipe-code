@@ -3,13 +3,13 @@
 ## 1. Verify status and safety
 
 - [x] 1.1 Adapt exit-status tests; unavailable applicable gates never yield complete-pass. Verified `cargo test --test verify_test`.
-- [ ] 1.2 Add blocked gate status, aggregate status, text/JSON report coverage for passed, failed, unavailable, blocked, and not-applicable.
-- [ ] 1.3 Update CLI help, README, and CLI tests for status/exit codes 0–4.
-- [ ] 1.4 Inventory gate effects and preflight; fake-runner tests prove blocked commands do not spawn.
-- [ ] 1.5 Classify effective DB settings conservatively, redact credentials, and test precedence, unknown, remote, production-like, and deceptive `test` names.
+- [x] 1.2 Add blocked gate status, aggregate status, text/JSON report coverage for passed, failed, unavailable, blocked, and not-applicable. Verified `cargo test --test verify_test report_tracks_all_gate_states_and_serializes_aggregate_status`.
+- [x] 1.3 Update CLI help, README, and CLI tests for status/exit codes 0–4. Verified `cargo test --test verify_test --test verify_cli_test` (30 passed).
+- [x] 1.4 Inventory gate effects and preflight; fake-runner tests prove blocked commands do not spawn. `cargo test --test verify_test --test verify_cli_test`: 30 passed, exit 0; DB classification limitations remain under 1.5.
+- [ ] 1.5 Classify effective DB settings conservatively, redact credentials, and test precedence, unknown, remote, production-like, and deceptive `test` names. Partial: SQLite remote/production URL, URL override, unsupported scheme and conflicting SQLite settings tested with `cargo test --lib database_safety_tests`; effective config precedence, isolation and redaction remain unverified.
 - [ ] 1.6 Document per-gate filesystem/network effects and preflight limits.
 - [ ] 1.7 Require preview and explicit scope-bound user approval for arbitrary CLI targets. Add a narrowly internal `verify-generated` path restricted to its self-created temporary workspace; preserve database preflight. Test no arbitrary path or public bypass.
-- [ ] 1.8 Run focused verify unit and CLI suites.
+- [x] 1.8 Run focused verify unit and CLI suites. `cargo test --test verify_test --test verify_cli_test`: 23 + 7 passed, exit 0.
 
 ## 2. Audit root safety and scan/export
 
