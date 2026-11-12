@@ -25,4 +25,4 @@ See `../../CR-ALIGNMENT.md` for requirement-to-task acceptance mapping and depen
 
 ## Impact
 
-Menyentuh engine audit, parser manifest/lockfile, format hasil, dan fixture/test. Bergantung pada hasil kanonik `add-scan-history`; terapkan dan arsipkan terlebih dahulu. Sumber dan format advisory serta daftar awal bahasa/ekosistem harus dipastikan saat design sebelum menetapkan coverage. Tidak mencakup perbaikan otomatis, online AI, atau klaim parity SonarQube.
+Menyentuh engine audit, parser manifest/lockfile, format hasil, dan fixture/test. Bergantung pada hasil kanonik `add-scan-history`; verifikasi kompatibilitas kontrak yang digunakan; pekerjaan independen dapat berjalan tanpa menunggu archive. Sumber dan format advisory serta daftar awal bahasa/ekosistem harus dipastikan saat design sebelum menetapkan coverage. Tidak mencakup perbaikan otomatis, online AI, atau klaim parity SonarQube.

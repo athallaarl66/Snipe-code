@@ -505,6 +505,42 @@ fn test_command_artifacts_only_for_tools_with_a_slash_command() {
     }
 }
 
+#[test]
+fn command_artifacts_require_explicit_approval_for_each_side_effect() {
+    let tools = ai_tools::load().unwrap();
+    for tool in &tools {
+        for definition in tool
+            .artifacts
+            .iter()
+            .filter(|item| item.template == "command")
+        {
+            let path = definition.resolve_path(&tool.id);
+            let plan = ai_tools::plan(&tools, &selection(&[&tool.id])).unwrap();
+            let artifact = plan
+                .artifacts
+                .iter()
+                .find(|item| item.path == path)
+                .unwrap();
+            for expected in [
+                "separate explicit approval",
+                "report writes",
+                "source edits",
+                "install",
+                "tests",
+                "endpoint access",
+                "data transmission",
+                "without approval",
+            ] {
+                assert!(
+                    artifact.content.contains(expected),
+                    "{}: missing {expected}",
+                    artifact.path
+                );
+            }
+        }
+    }
+}
+
 // --- 3.4 dry run ----------------------------------------------------------
 
 #[test]

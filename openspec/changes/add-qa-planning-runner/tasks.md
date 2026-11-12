@@ -35,7 +35,7 @@
 
 - [ ] 6.1 Define and verify unit/regression pilot adapter and selected framework/version before expanding support.
 - [ ] 6.2 Add phased adapter contracts and fixtures for Playwright, Postman collections using Postman CLI, Bruno, and Maestro; keep each unsupported until its own validation and execution boundary are ready.
-- [ ] 6.3 Perform and record CLI/agent parity UAT per supported OS: planning, preview, approval and refusal, changed scope, results, and unsupported capabilities; retain blocked status for unverified OS boundaries.
+- [ ] 6.3 Add CLI/agent contract tests for planning, preview, consent, changed scope and results; report untested OS boundaries and human UAT separately without claiming parity.
 
 ## 7. Postman setup and integration boundaries
 

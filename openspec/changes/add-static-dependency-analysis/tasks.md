@@ -26,5 +26,5 @@ See `../../CR-ALIGNMENT.md` for dependencies and source requirements. Before clo
 
 ## Workflow follow-up
 
-- Apply/archive `add-scan-history` first; this change consumes its result envelope.
-- Apply/archive this change before `add-quality-gates`, which consumes SAST/SCA statuses.
+- Validate compatibility with the available result envelope; independent work does not wait for archive.
+- Gates consuming SAST/SCA outcomes require the relevant implemented contract, not archive.

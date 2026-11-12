@@ -24,4 +24,4 @@ See `../../CR-ALIGNMENT.md` for requirement-to-task acceptance mapping and depen
 
 ## Impact
 
-Menyentuh hasil kanonik, fingerprint, parser coverage report, konfigurasi threshold, output CLI, dan test fixture. Bergantung pada model hasil dari `add-scan-history`; terapkan dan arsipkan change itu lebih dulu. Definisi metrik dan format report awal perlu dikunci melalui design dan corpus uji; belum mencakup GUI atau sinkronisasi PR remote.
+Menyentuh hasil kanonik, fingerprint, parser coverage report, konfigurasi threshold, output CLI, dan test fixture. Bergantung pada model hasil dari `add-scan-history`; verifikasi kompatibilitas kontrak yang dipakai tanpa menunggu archive. Definisi metrik dan format report awal perlu dikunci melalui design dan corpus uji; belum mencakup GUI atau sinkronisasi PR remote.

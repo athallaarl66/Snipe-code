@@ -24,4 +24,4 @@ See `../../CR-ALIGNMENT.md`. Existing scan/history code is partial, not absent. 
 
 ## Impact
 
-Menyentuh model hasil audit/verify, modul penyimpanan baru, CLI JSON, konfigurasi lokal, dan test migrasi. Perubahan bergantung pada kontrak scan/export dari `harden-verify-safety`; terapkan dan arsipkan change itu lebih dulu. Database produk tidak boleh memakai koneksi atau kredensial target proyek. Tidak mencakup engine rule SAST/SCA, GUI, AI, atau konektor.
+Menyentuh model hasil audit/verify, modul penyimpanan baru, CLI JSON, konfigurasi lokal, dan test migrasi. Perubahan bergantung pada kontrak scan/export dari `harden-verify-safety`; verifikasi kontrak yang dipakai sebelum integrasi. Database produk tidak boleh memakai koneksi atau kredensial target proyek. Tidak mencakup engine rule SAST/SCA, GUI, AI, atau konektor.

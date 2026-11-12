@@ -26,11 +26,11 @@ Audit MUST melewati symlink/reparse-point, memastikan file yang dibaca berada di
 - **THEN** perilaku format/JSON/exit legacy tetap, side effect dilaporkan, dan PDF dipaginasi tanpa menghilangkan finding
 
 ### Requirement: Export preserves content inside page boundaries
-Reports MUST preserve canonical finding identities and counts across JSON, Markdown, DOCX, and PDF. PDF text MUST remain within A4 margins with wrapping, pagination, and per-page footers; content extraction and visual acceptance MUST be recorded separately.
+Reports MUST preserve canonical finding identities and counts across JSON, Markdown, DOCX, and PDF. PDF text MUST remain within A4 margins with wrapping, pagination, and per-page footers; record extraction evidence and report visual inspection separately when available.
 
 #### Scenario: Zero one and many findings
 - **WHEN** reports contain zero, one, or many findings with long paths/descriptions
-- **THEN** all PDF text coordinates remain inside page margins and extraction retains every finding; missing extraction or render evidence is not a pass
+- **THEN** all PDF text coordinates remain inside page margins and extraction retains every finding; visual quality is not claimed without inspection
 
 ### Requirement: Histori audit tetap di luar scope
 Change ini MUST NOT menambah penyimpanan histori audit atau schema database.

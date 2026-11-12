@@ -25,17 +25,6 @@ Sebelum menjalankan gate, sistem MUST menampilkan preview command, direktori ker
 - **WHEN** nama DB mengandung `test`, tetapi target tidak terbukti lokal dan aman
 - **THEN** sistem mengklasifikasikan target unknown/remote dan memblokir sebelum child process berjalan
 
-### Requirement: Database absence and isolation are distinct
-Preflight MUST distinguish proven absence of database use from missing configuration. Missing or ambiguous configuration MUST remain blocked. A local host, test-like name, approval, or temporary project folder MUST NOT be treated as proof of database isolation.
-
-#### Scenario: No database use is established
-- **WHEN** supported project inspection establishes and records absence of DB use for the selected gate
-- **THEN** only DB preflight is not-applicable; gate execution still requires its normal approval and safety checks
-
-#### Scenario: Local shared database or missing settings
-- **WHEN** DB settings are missing or a local DB lacks isolation evidence
-- **THEN** risky execution remains blocked before spawn, even if approval is offered
-
 ### Requirement: Gate unavailable bukan lulus
 Evaluator MUST membedakan `passed`, `failed`, `unavailable`, `blocked`, dan `not-applicable`; hasil keseluruhan MUST tidak menyatakan lulus penuh jika gate applicable unavailable atau blocked.
 

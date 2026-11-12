@@ -26,5 +26,5 @@ See `../../CR-ALIGNMENT.md`. Independent metrics may proceed after the stable hi
 
 ## Workflow follow-up
 
-- Apply/archive `add-scan-history` first; consume its versioned result/fingerprint contract.
-- Apply/archive `add-static-dependency-analysis` first if gates consume its SAST/SCA outcomes.
+- Validate the versioned result/fingerprint contract when consumed; independent work does not wait for archive.
+- SAST/SCA-dependent gates require the relevant implemented outcome contract.

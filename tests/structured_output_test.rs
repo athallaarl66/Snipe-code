@@ -469,11 +469,23 @@ fn history_rejects_option_as_id_without_creating_database() {
 #[test]
 fn audit_rejects_ambiguous_options_before_target_io() {
     let fixture = Fixture::new("strict-audit");
-    let (stdout, stderr, status) = run(&["audit", fixture.path(), "--bogus"]);
-    assert_eq!(status, Some(2));
-    assert!(!fixture.dir.join("Audit_Report.md").exists());
-    assert!(stdout.is_empty());
-    assert!(stderr.contains("unknown option"));
+    let target = fixture.path();
+    for args in [
+        vec!["audit", target, "--bogus"],
+        vec!["audit", target, "--json", "--json"],
+        vec!["audit", target, "--export", "md", "--export", "pdf"],
+        vec!["audit", target, "another-path"],
+        vec!["audit", target, "--export"],
+        vec!["audit", target, "--export", ""],
+    ] {
+        let (stdout, stderr, status) = run(&args);
+        assert_eq!(status, Some(2), "{args:?}: {stderr}");
+        assert!(stdout.is_empty(), "{args:?}: {stdout}");
+        assert!(!stderr.is_empty(), "{args:?}");
+        for report in ["Audit_Report.md", "Audit_Report.pdf", "Audit_Report.docx"] {
+            assert!(!fixture.dir.join(report).exists(), "{args:?}: {report}");
+        }
+    }
 }
 
 // --- 2.3 documented in the help text ---------------------------------------

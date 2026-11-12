@@ -11,7 +11,7 @@ SNIPE-CODE belum menghasilkan test case/script terstruktur dan tidak mengisolasi
 - Jadikan eksekusi tahap eksplisit terpisah dengan review command, path, endpoint, environment, mount, network, dan output.
 - Blokir DB produksi/remote/ambigu dan eksekusi bila isolasi filesystem/proses/network tidak dapat dibuktikan; tidak menginstal tool diam-diam.
 - Rekam exit, timeout, log tersanitasi, evidence, skipped/unavailable/blocked, serta batas cleanup.
-- Sediakan CLI tanpa GUI dan agent dengan skills, termasuk testing skill untuk proyek pengguna; kemampuan agent dan CLI harus setara dan diuji melalui UAT per OS.
+- Sediakan CLI tanpa GUI dan agent dengan skills, termasuk testing skill untuk proyek pengguna; uji kontrak kemampuan agent dan CLI; UAT manusia per OS dilaporkan terpisah bila tersedia.
 - Dukung AI dan MCP lokal maupun online secara opsional, tanpa menjadi prasyarat; preview dan persetujuan eksplisit diperlukan sebelum data dikirim, endpoint diakses, tool di-install, atau test dijalankan.
 - Rencanakan dukungan bertahap untuk unit/regression, Playwright, Postman melalui Postman CLI, Bruno, dan Maestro; jangan klaim adapter tersedia sebelum diimplementasikan dan diverifikasi.
 

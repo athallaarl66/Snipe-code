@@ -26,11 +26,11 @@
 - [ ] 4.2 Recompute severity counts, highest_severity, and policy_failed from findings at every untrusted envelope consumer; reject tampered summaries before save/show/export writes.
 - [ ] 4.3 Add history delete preview with exact project identity and run count, dry-run without deletion, and explicit confirmation before targeted deletion. Test refusal, stale preview, non-interactive missing approval, unrelated rows, and unchanged source.
 - [ ] 4.4 Verify actual OS privacy behavior: Unix permissions and Windows inherited ACL limitation or tested hardening. Do not claim encryption or Windows private ACLs from Unix mode tests.
-- [ ] 4.5 Reconcile existing task 3.3 evidence: local pinned-toolchain pass is not CI-runner execution. Capture actual CI evidence or leave CI acceptance explicitly open.
+
 
 See `../../CR-ALIGNMENT.md`; new tasks remain unchecked until execution evidence exists.
 
 ## Workflow follow-up
 
-- Apply after `harden-verify-safety` is archived; validate consumer compatibility before archiving this capability.
-- Archive before `add-static-dependency-analysis` and `add-quality-gates`, which consume the result schema.
+- Validate compatibility with the scan/export contract; independent tasks do not wait for another change to be archived.
+- Consumers validate compatibility with the implemented result schema; archive ordering is not an implementation prerequisite.

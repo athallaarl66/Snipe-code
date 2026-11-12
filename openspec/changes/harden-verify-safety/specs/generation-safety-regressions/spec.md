@@ -12,7 +12,7 @@ Generation MUST validate override folders, file paths, and template sources befo
 - **THEN** generation fails before outside-boundary I/O and existing destination and canary files remain unchanged
 
 ### Requirement: Generated database configuration is consistent
-Generated Compose services and backend connection configuration MUST use matching database identity and credentials and omit obsolete Compose version declarations. Runtime readiness MUST require disposable connection and healthcheck evidence, not config parsing alone.
+Generated Compose services and backend connection configuration MUST use matching database identity and credentials and omit obsolete Compose version declarations. Runtime readiness claims MUST distinguish actual disposable connection and healthcheck evidence from config parsing.
 
 #### Scenario: Backend connects to generated database
 - **WHEN** an approved disposable Compose acceptance run starts the generated services
@@ -23,4 +23,4 @@ Generated Go CI MUST avoid cache setup that requires an absent go.sum and MUST r
 
 #### Scenario: Fresh generated Go project
 - **WHEN** CI starts from a scaffold without go.sum
-- **THEN** setup does not require that file before dependency resolution and actual CI outcome is recorded separately from local syntax checks
+- **THEN** setup does not require that file before dependency resolution; actual CI outcome is reported separately when available

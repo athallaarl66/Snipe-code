@@ -24,7 +24,7 @@
 
 ## CR alignment boundaries
 
-See `../../CR-ALIGNMENT.md`. Safety closure also covers template override containment, truthful PDF/parity evidence, generated Compose configuration and Go CI regressions. These are bounded corrections, not a new scaffolding product. Existing agent artifacts need immediate consent wording before the later workflow redesign. DB classification is not isolation; uncertain risky execution remains blocked. Sandbox platform implementation remains owned by `add-qa-planning-runner`; no approval bypass substitutes for it.
+See `../../CR-ALIGNMENT.md`. Safety closure also covers template override containment, truthful PDF/parity evidence, generated Compose configuration and Go CI regressions. These are bounded corrections, not a new scaffolding product. Existing agent artifacts need immediate consent wording before the later workflow redesign. DB classification is not isolation. Missing or ambiguous database settings remain blocked by the existing preflight; no proof of database absence is required as a separate feature. Sandbox platform implementation remains owned by `add-qa-planning-runner`; no approval bypass substitutes for it.
 
 ## Risks / Trade-offs
 

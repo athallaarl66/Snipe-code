@@ -12,7 +12,7 @@ Lihat proposal dan `specs/quality-gates/spec.md`. `audit` menghitung heuristik t
 
 ## Decisions
 
-- Gunakan result envelope `add-scan-history`; simpan metric ID/version, config version, value/unit, input provenance, exclusions dan status. Terapkan setelah `add-scan-history` diarsipkan.
+- Gunakan result envelope `add-scan-history`; simpan metric ID/version, config version, value/unit, input provenance, exclusions dan status. Verifikasi kompatibilitas kontrak yang dipakai tanpa menunggu archive.
 - Implementasi maintainability/duplication hanya untuk metrik yang punya definisi deterministik dan corpus fixture terukur. Hindari satu score agregat yang menyembunyikan submetric/unknown.
 - Coverage hanya diimpor dari format yang dipilih lewat design dengan fixture; validasi source path mapping ke project root, format/version, dan jumlah file. Tanpa report valid hasil `unknown`.
 - Baseline merujuk run/schema/rule/fingerprint version dan base commit/ref opsional. Compare menghasilkan new/unchanged/resolved hanya untuk match yang jelas; rename atau rule-version mismatch menghasilkan ambiguous/unknown.

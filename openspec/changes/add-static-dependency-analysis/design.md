@@ -33,8 +33,8 @@ See `../../CR-ALIGNMENT.md` for requirement-to-task acceptance mapping and depen
 
 ## Migration Plan
 
-1. Gunakan envelope hasil `scan-history`; perubahan menerapkannya setelah `add-scan-history` diarsipkan.
+1. Gunakan envelope hasil `scan-history`; integrasi memverifikasi kontrak yang tersedia tanpa menunggu archive.
 2. Tambahkan satu ecosystem/rule slice dengan fixture dan docs aktual; tambah ekosistem hanya setelah gate fixtures lulus.
 3. Tambahkan import/refresh snapshot sebagai operasi terpisah opt-in; default SCA offline.
 4. Jika rule pack gagal, matikan versi pack terkait; simpan history lama bersama rule version, jangan rewrite hasil historis.
-5. Terapkan/archive `add-scan-history` dahulu; terapkan/archive `add-static-dependency-analysis` sebelum `add-quality-gates` supaya quality gate dapat mengonsumsi status SAST/SCA.
+5. Verifikasi kontrak status SAST/SCA saat quality gate mengonsumsinya; tugas independen tidak menunggu archive.

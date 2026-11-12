@@ -72,8 +72,8 @@ CLI dan agent MUST meminta persetujuan eksplisit pengguna setelah preview untuk 
 - **THEN** aksi berstatus `blocked` tanpa install, test, akses endpoint, atau transmisi data
 
 ### Requirement: UAT parity CLI dan agent per OS
-Setiap OS yang dinyatakan didukung MUST memiliki bukti UAT parity CLI dan agent untuk planning, preview, approval dan penolakan, perubahan scope, hasil, dan boundary yang tidak tersedia. OS atau boundary yang belum diverifikasi MUST tidak diklaim didukung dan eksekusi yang memerlukannya MUST `blocked`.
+Sistem MUST menguji kontrak CLI dan agent untuk planning, preview, approval, perubahan scope, hasil, dan boundary yang tidak tersedia. UAT manusia dicatat terpisah bila tersedia; OS atau boundary yang belum diverifikasi tidak diklaim didukung dan eksekusi yang memerlukannya tetap `blocked`.
 
 #### Scenario: Boundary OS belum diverifikasi
-- **WHEN** UAT atau boundary isolasi OS yang diperlukan belum terbukti
+- **WHEN** boundary isolasi OS yang diperlukan belum terbukti
 - **THEN** sistem tidak mengklaim dukungan atau parity dan memblokir eksekusi yang memerlukan boundary tersebut
