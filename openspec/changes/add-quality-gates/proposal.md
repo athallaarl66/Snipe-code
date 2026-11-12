@@ -18,6 +18,10 @@ Hasil scan belum menghitung metrik maintainability/duplication, memakai coverage
 
 ### Modified Capabilities
 
+## CR alignment
+
+See `../../CR-ALIGNMENT.md` for requirement-to-task acceptance mapping and dependency boundaries. Current checkboxes are evidence claims, not completion inferred from this planning update.
+
 ## Impact
 
 Menyentuh hasil kanonik, fingerprint, parser coverage report, konfigurasi threshold, output CLI, dan test fixture. Bergantung pada model hasil dari `add-scan-history`; terapkan dan arsipkan change itu lebih dulu. Definisi metrik dan format report awal perlu dikunci melalui design dan corpus uji; belum mencakup GUI atau sinkronisasi PR remote.

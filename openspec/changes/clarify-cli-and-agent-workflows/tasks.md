@@ -23,7 +23,7 @@
 - [ ] 3.3 Render JUnit XML without a new dependency, mapping not-applicable and unavailable gates to skipped cases with distinct messages and preserving exact states as properties.
 - [ ] 3.4 Render a Markdown test and quality-gate report with target, parts, gate commands, outcomes, failure details, and summary.
 - [ ] 3.5 Refuse to replace an existing report unless the user passes an explicit overwrite option; report invalid format or missing path as exit `2` before gates, and write failures as exit `3` after execution.
-- [ ] 3.6 Preserve gate-derived exit `0` or `1` after a successful report write, keep errors on stderr, and print only the requested structured result or report path on stdout.
+- [ ] 3.6 Preserve gate-derived exit `0`, `1`, `3`, or `4` after a successful report write; usage errors remain `2`, keep errors on stderr, and print only the requested structured result or report path on stdout.
 - [ ] 3.7 Add renderer, parser, CLI, malformed-output, report-collision, write-failure, and exit-status tests; retain fake runners for unit tests that must not spawn external toolchains.
 
 ## 4. AI-agent workflows
@@ -47,6 +47,15 @@
 - [ ] 5.6 Rewrite general help, per-command help, FAQ, and affected feature documentation in English, keeping commands, paths, report names, and current limitations exact.
 - [ ] 5.7 Update README contract tests in `verify_cli_test.rs`, `release_contract_test.rs`, `bugfix_test.rs`, `ai_integration_test.rs`, and `test_infra_contracts_test.rs` without dropping unrelated pinned literals.
 - [ ] 5.8 Run the documentation prose checker and remove new em dashes, decorative bold, title-case headings, mixed-language UI examples, and unsupported claims.
+
+## 7. CR workflow consistency
+
+- [ ] 7.1 Expose existing scan/export/history routes and explain legacy audit writes before routing to it; show future quality/QA operations only as unavailable until delivered. Keep no-action-before-selection tests.
+- [ ] 7.2 Require separate, scope-bound preview and user approval in each generated workflow before source edits, installation, tests, endpoint access, data sharing, or report writes. Instructions are not a runtime permission boundary; preserve core preflight rejection.
+- [ ] 7.3 Preserve blocked, unavailable, and not-applicable separately in JSON/Markdown/JUnit, including exact-state properties for skipped cases; test failure, no-execution, and incomplete results retain exits 1, 3, and 4 after successful export.
+- [ ] 7.4 Document the four distinct paths: generated example tests, verify executing declared tests, deterministic report export, and reviewed agent-assisted test authoring. Do not claim planned QA/model/connector runtime already exists.
+
+See `../../CR-ALIGNMENT.md`.
 
 ## 6. Verification and release readiness
 

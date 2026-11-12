@@ -20,7 +20,11 @@
 - [ ] 3.3 Document metric definitions, coverage provenance, baseline matching limits and policy configuration; verify docs distinguish static analysis from test coverage.
 - [ ] 3.4 Run focused golden/contract tests plus `cargo test --all-targets --all-features` on pinned CI toolchain; record actual results before marking complete.
 
+## CR acceptance clarification
+
+See `../../CR-ALIGNMENT.md`. Independent metrics may proceed after the stable history contract; SAST/SCA-dependent gates wait for their adapters. Missing coverage, baseline, version match, or required metric is unknown/non-pass, never an inferred zero or pass. Keep quality decision values distinct from verify execution states and test the CLI mapping explicitly.
+
 ## Workflow follow-up
 
-- Apply/archive `add-scan-history` first; consume its b versioned result/fingerprint contract.
+- Apply/archive `add-scan-history` first; consume its versioned result/fingerprint contract.
 - Apply/archive `add-static-dependency-analysis` first if gates consume its SAST/SCA outcomes.

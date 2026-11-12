@@ -46,6 +46,13 @@ Run MUST merekam exit status, timeout/cancel, gate yang skipped/unavailable/bloc
 - **WHEN** child process gagal atau pengguna membatalkan run
 - **THEN** runner merekam status dan artefak yang sudah dibuat tanpa menghapus file di luar workspace terisolasi
 
+### Requirement: Postman setup is separately reviewed
+Postman CLI setup MUST disclose detected version/configuration, install source/destination, collection, environment, endpoint, and data before explicit setup approval. Missing tools MUST be unavailable and denied approval blocked; credentials MUST NOT be stored plaintext.
+
+#### Scenario: Setup is unavailable or declined
+- **WHEN** Postman CLI is absent or the user declines installation/configuration
+- **THEN** no implicit install or endpoint request occurs and no test is reported passed
+
 ### Requirement: Dependency tidak di-install tanpa izin
 Runner MUST tidak mengunduh atau memasang dependency/tool kecuali langkah tersebut tercantum dalam ringkasan yang disetujui pengguna.
 

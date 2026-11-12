@@ -45,6 +45,13 @@ The report renderer SHALL consume the deterministic verification result and SHAL
 - **WHEN** gates finish but the requested report cannot be written
 - **THEN** the CLI reports the export failure on standard error and exits with runtime status `3`
 
+### Requirement: Incomplete results remain non-pass after export
+Successful report writes SHALL preserve gate-derived exit 0, 1, 3, or 4 and exact blocked, unavailable, and not-applicable states. Usage errors SHALL remain exit 2; report write failures SHALL return runtime exit 3.
+
+#### Scenario: Applicable gate blocked or unavailable
+- **WHEN** a report is exported for no-execution or incomplete verification
+- **THEN** output preserves exact gate states and exits 3 or 4 respectively instead of success; JUnit skipped cases include exact-state properties
+
 ### Requirement: Security audit and verification reports remain distinct
 User-facing output SHALL identify audit exports as security reports and verification exports as test and quality-gate reports.
 

@@ -22,6 +22,10 @@
 - Parser menolak flag tak dikenal/duplikat, path ganda, dan nilai hilang sebelum I/O. PDF dipaginasi dan seluruh finding diverifikasi lewat ekstraksi teks.
 - Scan history/SQLite tetap di luar scope.
 
+## CR alignment boundaries
+
+See `../../CR-ALIGNMENT.md`. Safety closure also covers template override containment, truthful PDF/parity evidence, generated Compose configuration and Go CI regressions. These are bounded corrections, not a new scaffolding product. Existing agent artifacts need immediate consent wording before the later workflow redesign. DB classification is not isolation; uncertain risky execution remains blocked. Sandbox platform implementation remains owned by `add-qa-planning-runner`; no approval bypass substitutes for it.
+
 ## Risks / Trade-offs
 
 - [Exit code baru merusak automation lama] Dokumentasikan perubahan dan sediakan mode compatibility bila diperlukan; update integration tests/CLI docs.

@@ -24,6 +24,10 @@ Lihat proposal dan delta `qa-planning` serta `qa-runner`. Saat ini `verify` menj
 - Roadmap adapter: mulai Postman CLI untuk proyek pengguna, lalu Playwright untuk web, Bruno untuk API, Maestro untuk mobile, serta unit/regression sesuai framework dan versi yang dipilih, masing-masing setelah kontrak, fixture, izin dan boundary OS siap. Urutan setelah pilot dapat disesuaikan berdasarkan kesiapan; format yang belum siap tetap `unsupported`. Testing skill bekerja pada proyek pengguna dan menggunakan adapter/policy yang sama, bukan instalasi atau eksekusi terselubung.
 - UAT per OS yang dinyatakan didukung membandingkan CLI dan agent untuk planning, preview, approval/penolakan, perubahan manifest, hasil, dan `blocked` pada capability yang tidak tersedia. Catat OS, versi, jalur, bukti dan batas; jangan klaim parity atau dukungan OS tanpa UAT lulus.
 
+## CR alignment
+
+See `../../CR-ALIGNMENT.md`. Postman CLI is the first adapter pilot; the unit/regression task defines its subsequent framework slice, not an earlier competing pilot. Setup preview and approval are separate from run approval. Full M5 provider and service-specific connector runtime is deferred pending explicit scope and security contracts; optional planning integration requirements do not claim those services exist.
+
 ## Risks / Trade-offs
 
 - [Sandbox universal mahal dan beda OS] Capability matrix per OS; unsupported = blocked.

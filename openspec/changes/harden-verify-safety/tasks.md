@@ -28,6 +28,19 @@
 - [ ] 3.3 Paginate PDF and verify extracted text contains every finding on a large fixture; inspect rendered layout before claiming visual acceptance.
 - [ ] 3.4 Correct README and feature docs; verify claims against source/tests.
 
+## 5. CR safety and report acceptance
+
+- [ ] 5.1 Validate override folder paths, file paths, and template sources before any staging read/write; reject traversal, absolute/drive/UNC paths, and symlink/reparse escapes. Test outside-root canaries and unchanged destination on rejection.
+- [ ] 5.2 Distinguish proven absence of DB use from missing configuration. Test proven no-DB as not-applicable for DB preflight only, unknown settings as blocked, and local shared DB as not proven isolated; user approval never overrides rejection.
+- [ ] 5.3 Restrict PDF coordinates to A4 margins for zero, one, and many findings; wrap long text, preserve full finding content, and add footer per page. Verify every finding by text extraction, then obtain separate visual acceptance.
+- [ ] 5.4 Compare canonical finding identities/counts across JSON, Markdown, DOCX, and PDF exports; test long paths/descriptions and report missing extractor as NOT RUN, not PASS.
+- [ ] 5.5 Align generated Compose DB name/user/password with backend configuration, remove obsolete version field, and add healthcheck plus disposable runtime connection acceptance after separate Docker approval. Config validation alone is not runtime proof.
+- [ ] 5.6 Handle generated Go CI without go.sum using valid cache configuration or generated lock data; verify actual generated-project CI and keep unavailable CI evidence open.
+- [ ] 5.7 Extend outside-root canary coverage to Windows file symlinks where supported; report missing symlink privilege as SKIPPED with junction coverage separate.
+- [ ] 5.8 Patch existing agent command guidance immediately to require separate preview/approval before export writes, source fixes, tests, install, endpoints, or data transmission; do not wait for full workflow redesign. Verify all registry-generated variants.
+
+See `../../CR-ALIGNMENT.md` for scope and delivery order.
+
 ## 4. Final verification
 
 - [ ] 4.1 Run `cargo test --test verify_test --test verify_cli_test` and audit-focused tests.

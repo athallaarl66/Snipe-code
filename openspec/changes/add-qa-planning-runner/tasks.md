@@ -37,6 +37,14 @@
 - [ ] 6.2 Add phased adapter contracts and fixtures for Playwright, Postman collections using Postman CLI, Bruno, and Maestro; keep each unsupported until its own validation and execution boundary are ready.
 - [ ] 6.3 Perform and record CLI/agent parity UAT per supported OS: planning, preview, approval and refusal, changed scope, results, and unsupported capabilities; retain blocked status for unverified OS boundaries.
 
+## 7. Postman setup and integration boundaries
+
+- [ ] 7.1 Pilot Postman CLI first: detect installed version/configuration and preview trusted install source, destination, collection, environment, endpoint, and data before separate setup approval. Missing tool is unavailable; denied approval is blocked; never persist plaintext credentials.
+- [ ] 7.2 Record disposable DB unique identity, restricted credentials, network deny-by-default, fixtures, reset, and cleanup boundary. Test non-DB runs also enforce filesystem/process/network/secret isolation; lack of evidence blocks execution.
+- [ ] 7.3 Keep M5 provider runtime and service-specific connectors outside current adapter delivery until scope, credential storage, retention, payload consent, idempotency, and permission contracts are approved; basic offline planning stays usable without models.
+
+See `../../CR-ALIGNMENT.md`.
+
 ## Workflow follow-up
 
 - The planning-only capability may be applied before a runner implementation is approved.

@@ -19,6 +19,10 @@
 
 ### Modified Capabilities
 
+## CR alignment
+
+See `../../CR-ALIGNMENT.md` for requirement-to-task acceptance mapping and dependency boundaries. Current checkboxes are evidence claims, not completion inferred from this planning update.
+
 ## Impact
 
 Menyentuh engine audit, parser manifest/lockfile, format hasil, dan fixture/test. Bergantung pada hasil kanonik `add-scan-history`; terapkan dan arsipkan terlebih dahulu. Sumber dan format advisory serta daftar awal bahasa/ekosistem harus dipastikan saat design sebelum menetapkan coverage. Tidak mencakup perbaikan otomatis, online AI, atau klaim parity SonarQube.

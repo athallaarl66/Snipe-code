@@ -23,6 +23,10 @@ SNIPE-CODE belum menghasilkan test case/script terstruktur dan tidak mengisolasi
 
 ### Modified Capabilities
 
+## CR alignment
+
+See `../../CR-ALIGNMENT.md`. Postman CLI is the first adapter pilot; the unit/regression task defines its subsequent framework slice, not an earlier competing pilot. Setup preview and approval are separate from run approval. Full M5 provider and service-specific connector runtime is deferred pending explicit scope and security contracts; optional planning integration requirements do not claim those services exist.
+
 ## Impact
 
 Menyentuh CLI/agent, skills, runner, model hasil, policy izin, adapters test, serta unit/contract/security tests. Rencana case dapat memakai schema hasil dari `add-scan-history`; runner tidak bergantung pada GUI, AI, atau connector. Platform yang tak memiliki sandbox memadai harus mengembalikan `blocked`, bukan melonggarkan isolasi. Scope adapter dan perilaku eksekusi DB harus ditetapkan sebelum implementation.

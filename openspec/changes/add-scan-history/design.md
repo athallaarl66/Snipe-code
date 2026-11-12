@@ -2,7 +2,7 @@
 
 ## Context
 
-Lihat `proposal.md` dan `specs/scan-history/spec.md`. Kode saat ini menghasilkan `AuditResult` dan `verify::Report` per run; `Finding` belum memiliki ID rule/fingerprint atau penyimpanan persisten. Belum ada SQLite dependency.
+Lihat `proposal.md` dan `specs/scan-history/spec.md`. Kode saat ini sudah menyediakan `ScanEnvelope`, fingerprint berversi, SQLite opt-in, serta scan/export/history. Sisa pekerjaan adalah kejujuran status rule, validasi ringkasan, redaksi lintas consumer, dan keselamatan penghapusan; lihat `../../CR-ALIGNMENT.md`.
 
 ## Goals / Non-Goals
 
@@ -17,6 +17,10 @@ Lihat `proposal.md` dan `specs/scan-history/spec.md`. Kode saat ini menghasilkan
 - Simpan evidence minimum: relative path, line/range, deskripsi redacted dan hash fingerprint. Jangan menyimpan snippet source secara default. Filter nilai secret pada render/persistence dan uji canary yang tidak boleh muncul di DB, JSON, log, maupun export.
 - Pisahkan operasi read result dari persistence/history. History opt-in atau sesuai consent yang jelas; sediakan list/show/export/delete lokal. Offline tidak memanggil jaringan.
 - Tulis migrasi berurutan dan schema metadata. Backup sebelum upgrade bila diperlukan; migrasi gagal rollback atomik dan aplikasi tetap dapat membuka versi lama tanpa menulis data rusak.
+
+## CR alignment
+
+See `../../CR-ALIGNMENT.md`. Existing scan/history code is partial, not absent. Complete evaluated rule states, reject contradictory summaries, and require deletion preview, dry-run, and scope-bound confirmation. Preserve OS-specific privacy limits; do not infer Windows ACL guarantees from Unix permissions.
 
 ## Risks / Trade-offs
 

@@ -41,6 +41,13 @@ Agents that support generated invocable workflows SHALL receive separate audit, 
 - **WHEN** a user invokes the generated SNIPE-CODE test-authoring workflow with a requested behavior
 - **THEN** the agent reads the relevant source and requirements, asks when expected behavior is ambiguous, writes or updates tests, and runs `snipe-code verify` with the test gate
 
+### Requirement: Workflow instructions do not grant implicit consent
+Generated workflows SHALL preview effects and require separate scope-bound user approval before source edits, install, tests, endpoint access, data sharing, or report writes. Invoking a workflow SHALL NOT authorize all later actions or override Rust core preflight.
+
+#### Scenario: Finding suggests a fix and test
+- **WHEN** review identifies a confirmed issue
+- **THEN** the agent presents proposed edits and test commands separately, waits for approval of each effect, and reports rejected or unavailable execution without a pass claim
+
 ### Requirement: Test authoring and test execution have separate ownership
 Generated guidance SHALL state that AI agents may author or repair tests through their coding workflow, while the executable discovers and runs declared tests and produces deterministic results and reports.
 

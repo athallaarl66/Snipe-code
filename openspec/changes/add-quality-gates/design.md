@@ -18,6 +18,10 @@ Lihat proposal dan `specs/quality-gates/spec.md`. `audit` menghitung heuristik t
 - Baseline merujuk run/schema/rule/fingerprint version dan base commit/ref opsional. Compare menghasilkan new/unchanged/resolved hanya untuk match yang jelas; rename atau rule-version mismatch menghasilkan ambiguous/unknown.
 - Quality gate memakai config eksplisit berversi; setiap metric policy = required/optional, threshold, handling unknown. Default unknown non-pass, failure threshold = fail. CLI exit code baru harus disejajarkan dengan `harden-verify-safety`.
 
+## CR alignment
+
+See `../../CR-ALIGNMENT.md` for requirement-to-task acceptance mapping and dependency boundaries. Current checkboxes are evidence claims, not completion inferred from this planning update.
+
 ## Risks / Trade-offs
 
 - [Metric definition berubah] Versi metric/config; jangan bandingkan angka lintas definisi tanpa konversi eksplisit.

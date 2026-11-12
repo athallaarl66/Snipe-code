@@ -24,6 +24,20 @@ Setiap run MUST membedakan rule yang dievaluasi, tidak berlaku, unknown, dan err
 - **WHEN** run menemukan bahasa, file, atau rule yang tidak didukung/tidak dievaluasi
 - **THEN** hasil menyatakan status unknown/tidak dievaluasi dan tidak menyimpulkan proyek bersih dari cakupan tersebut
 
+### Requirement: Envelope summaries match findings
+Envelope consumers MUST reject severity counts, highest severity, or policy failure inconsistent with findings. Executed rule groups MUST retain evaluated status through scan, persistence, and export; unsupported groups MUST remain unknown.
+
+#### Scenario: Summary is edited or scope is round-tripped
+- **WHEN** an imported summary contradicts its findings or an evaluated group is saved and read back
+- **THEN** contradictory input is rejected before output writes, while valid round trips preserve evaluated coverage
+
+### Requirement: Deletion requires preview and explicit confirmation
+History deletion MUST preview the exact project identity and run count, support a non-mutating dry-run, and require explicit approval for that scope. Changed scope or missing approval MUST prevent deletion.
+
+#### Scenario: Delete is declined or preview becomes stale
+- **WHEN** confirmation is missing/declined or the selected runs change after preview
+- **THEN** no rows are deleted and unrelated history and project files remain unchanged
+
 ### Requirement: Riwayat disimpan hanya pada penyimpanan lokal produk
 Riwayat MUST disimpan dalam database lokal produk yang terpisah dari database proyek target; penyimpanan MUST tidak memerlukan network.
 

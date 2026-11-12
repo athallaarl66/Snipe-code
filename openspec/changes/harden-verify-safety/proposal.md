@@ -26,6 +26,8 @@ Scope audit CLI sebelumnya di `harden-audit-cli` digabung ke proposal ini agar l
 - `safe-verification`: Menjalankan quality gate dengan preflight, status hasil yang jujur, dan batas side effect yang terlihat.
 - `audit-cli`: Pemindaian audit berbatas root, scan read-only, export eksplisit, dan kontrak CLI yang kompatibel.
 
+- `generation-safety-regressions`: Containment of template overrides and generated Compose/Go CI contracts.
+
 ### Modified Capabilities
 
 ## Impact

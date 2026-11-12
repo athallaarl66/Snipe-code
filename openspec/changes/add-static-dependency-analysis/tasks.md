@@ -20,6 +20,10 @@
 - [ ] 3.2 Document only the ecosystems/rules whose fixtures and adapter tests pass; verify unsupported is explicitly distinct from clean.
 - [ ] 3.3 Run `cargo test --all-targets --all-features` on pinned CI toolchain plus focused fixture tests; record actual command/exit before marking complete.
 
+## CR acceptance clarification
+
+See `../../CR-ALIGNMENT.md` for dependencies and source requirements. Before closing 2.2, test absent/invalid snapshot timestamps as unknown without egress, not only expired snapshots. Before closing 1.1-1.2, record the selected corpus, supported constructs, and unsupported/timeout behavior; no announced support without paired positive/negative fixtures.
+
 ## Workflow follow-up
 
 - Apply/archive `add-scan-history` first; this change consumes its result envelope.

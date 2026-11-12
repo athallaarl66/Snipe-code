@@ -19,6 +19,10 @@ Lihat proposal dan delta `static-analysis` serta `dependency-analysis`. `audit` 
 - Simpan snapshot atomik dengan source, format/version, checksum/signature bila tersedia, fetch time dan expiry policy. Periksa integritas sebelum aktivasi; snapshot absent/stale/schema mismatch = unknown.
 - Uji positive/negative fixtures per rule dan ecosystem: safe parameterized query, escaped/sanitized sink, fake secret, vulnerable dependency version, unaffected version, missing/invalid lockfile, stale snapshot dan offline no-egress.
 
+## CR alignment
+
+See `../../CR-ALIGNMENT.md` for requirement-to-task acceptance mapping and dependency boundaries. Current checkboxes are evidence claims, not completion inferred from this planning update.
+
 ## Risks / Trade-offs
 
 - [False positive/negative] Nyatakan confidence/evidence; rule tanpa pair fixture tidak dirilis.
