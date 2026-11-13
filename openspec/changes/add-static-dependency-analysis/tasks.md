@@ -18,7 +18,7 @@
 
 - [ ] 3.1 Integrate SAST/SCA rule states into versioned result envelope; verify CLI and saved result preserve matching IDs, provenance, unknown, stale, and error states.
 - [ ] 3.2 Document only the ecosystems/rules whose fixtures and adapter tests pass; verify unsupported is explicitly distinct from clean.
-- [ ] 3.3 Run `cargo test --all-targets --all-features` on pinned CI toolchain plus focused fixture tests; record actual command/exit before marking complete.
+- [ ] 3.3 Run `cargo test --all-targets --all-features` locally on the pinned toolchain plus focused fixture tests; record actual command/exit before marking complete. Actual CI results are recorded separately when available; external CI is not a completion prerequisite.
 
 ## CR acceptance clarification
 

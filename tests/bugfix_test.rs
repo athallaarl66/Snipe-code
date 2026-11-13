@@ -115,6 +115,24 @@ fn test_workflow_uses_npm_install_not_ci() {
 }
 
 #[test]
+fn test_go_workflow_does_not_require_go_sum_for_setup() {
+    let dir = temp_project("workflow-go-no-sum");
+    assert!(!dir.join("backend/go.sum").exists());
+    cicd::generate_ci_cd(&dir.to_string_lossy(), "none", "go-gin").unwrap();
+    let content = fs::read_to_string(dir.join(".github/workflows/main.yml")).unwrap();
+    assert!(content.contains("          cache: false"));
+    for command in [
+        "go mod tidy",
+        "go test ./...",
+        "go vet ./...",
+        "go build ./...",
+    ] {
+        assert!(content.contains(command), "missing {command}");
+    }
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn test_non_container_backend_omits_backend_compose_service() {
     let dir = temp_project("compose-go");
     snipe_code::docker::generate_docker_compose(&dir.to_string_lossy(), "postgresql", "go-gin")

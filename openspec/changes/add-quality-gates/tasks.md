@@ -18,7 +18,7 @@
 - [ ] 3.1 Implement versioned quality gate outcomes `pass`/`fail`/`unknown`/`not-applicable`; test threshold boundaries and prove required missing metric never passes.
 - [ ] 3.2 Align CLI exit/output with `harden-verify-safety`; verify mixed unavailable/unknown and explicit fail cases with integration tests.
 - [ ] 3.3 Document metric definitions, coverage provenance, baseline matching limits and policy configuration; verify docs distinguish static analysis from test coverage.
-- [ ] 3.4 Run focused golden/contract tests plus `cargo test --all-targets --all-features` on pinned CI toolchain; record actual results before marking complete.
+- [ ] 3.4 Run focused golden/contract tests plus `cargo test --all-targets --all-features` locally on the pinned toolchain; record rustc version and exit result before marking complete. Actual CI results are recorded separately when available; external CI is not a completion prerequisite.
 
 ## CR acceptance clarification
 

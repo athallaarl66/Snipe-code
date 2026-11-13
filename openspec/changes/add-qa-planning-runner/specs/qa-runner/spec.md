@@ -17,8 +17,8 @@ Runner MUST menampilkan manifest command, working directory, endpoint, environme
 - **WHEN** command, target, environment, mount, atau network berubah setelah ringkasan ditampilkan
 - **THEN** runner membatalkan approval lama dan meminta persetujuan baru sebelum eksekusi
 
-### Requirement: Target database tidak dipercaya diblokir
-Runner MUST memblokir test/install hook yang dapat mengakses produksi/remote/ambiguous DB kecuali target disposable terisolasi dapat diverifikasi; nama database saja tidak membuktikan isolasi.
+### Requirement: Status konfigurasi database dan batas isolasi dinyatakan jujur
+Runner MUST memblokir sebelum spawn bila konfigurasi DB eksplisit remote/production-like atau ambigu/tidak dapat diurai; approval MUST NOT melewati blokir ini. Bila konfigurasi DB tidak terdeteksi, manifest MUST menyatakan target unknown, memberi peringatan, dan meminta approval eksplisit CLI; tanpa approval status `blocked`. Approval tidak membuktikan database tidak ada atau aman. Bersihkan environment DB host/target yang dikenali sebelum child process. Temp workspace bukan sandbox: runner MUST NOT mengklaim isolasi filesystem, proses, network, endpoint, atau terhadap DB hardcoded/tidak terdeteksi tanpa boundary yang benar-benar ditegakkan. Nama `test` tidak membuktikan isolasi.
 
 #### Scenario: Target database produksi atau remote
 - **WHEN** preflight mengidentifikasi DB produksi atau remote yang tidak diizinkan
@@ -28,12 +28,24 @@ Runner MUST memblokir test/install hook yang dapat mengakses produksi/remote/amb
 - **WHEN** konfigurasi efektif tidak cukup untuk membuktikan target DB aman
 - **THEN** runner fail-closed sebelum proses dibuat dan meminta target yang dapat diverifikasi
 
-### Requirement: Eksekusi fail closed bila isolasi tidak tersedia
-Runner MUST menyatakan boundary aktual untuk platform dan MUST NOT mengklaim sandboxed/isolated jika batas filesystem, proses, atau network tidak ditegakkan.
+#### Scenario: Tidak ada konfigurasi database terdeteksi
+- **WHEN** runner tidak menemukan konfigurasi database pada target
+- **THEN** manifest menyatakan target tidak terdeteksi, run hanya dimulai setelah persetujuan eksplisit pengguna, dan laporan tidak mengklaim database aman atau tidak ada
 
-#### Scenario: Platform tidak mendukung boundary yang diwajibkan
-- **WHEN** OS tidak dapat menerapkan isolasi sesuai izin yang ditinjau
-- **THEN** run berstatus blocked tanpa menjalankan command
+### Requirement: Batas eksekusi dan isolasi dilaporkan akurat
+Runner MUST membedakan host execution dengan sandbox yang boundary filesystem/process/network-nya benar-benar ditegakkan. Temporary workspace saja MUST NOT disebut sandbox. Host execution dapat berjalan hanya dengan approval scope-bound, preflight DB, dan pembersihan environment target DB yang dikenali; laporan MUST menyebutnya host execution dan mengungkapkan keterbatasan yang diketahui. Mode yang secara eksplisit meminta boundary isolasi yang tidak tersedia MUST berstatus `blocked`.
+
+#### Scenario: Run disetujui pada host tanpa sandbox
+- **WHEN** pengguna menyetujui manifest yang secara jelas menyebut host execution dan preflight DB tidak menemukan konfigurasi eksplisit yang harus diblokir
+- **THEN** runner menjalankan hanya command dalam scope, membersihkan environment DB host/target yang dikenali, dan tidak mengklaim isolasi dari network, filesystem host, endpoint, atau konfigurasi DB hardcoded
+
+#### Scenario: Mode sandbox diminta tetapi boundary tidak tersedia
+- **WHEN** run meminta boundary filesystem/process/network yang platform tidak dapat tegakkan
+- **THEN** mode sandbox berstatus `blocked` dan tidak diam-diam beralih ke host execution
+
+#### Scenario: Workspace sementara
+- **WHEN** command dijalankan dari workspace sementara yang dibuat runner
+- **THEN** workspace membatasi lokasi file yang dikelola runner saja dan tidak membuktikan isolasi command dari host atau network.
 
 ### Requirement: Hasil run mencatat status dan efek
 Run MUST merekam exit status, timeout/cancel, gate yang skipped/unavailable/blocked, log yang sudah disanitasi, serta artifact yang dibuat.
@@ -44,7 +56,7 @@ Run MUST merekam exit status, timeout/cancel, gate yang skipped/unavailable/bloc
 
 #### Scenario: Run gagal atau dibatalkan
 - **WHEN** child process gagal atau pengguna membatalkan run
-- **THEN** runner merekam status dan artefak yang sudah dibuat tanpa menghapus file di luar workspace terisolasi
+- **THEN** runner merekam status dan artefak yang sudah dibuat tanpa menghapus file di luar output/workspace yang secara eksplisit dikelolanya; workspace sementara bukan jaminan isolasi
 
 ### Requirement: Postman setup is separately reviewed
 Postman CLI setup MUST disclose detected version/configuration, install source/destination, collection, environment, endpoint, and data before explicit setup approval. Missing tools MUST be unavailable and denied approval blocked; credentials MUST NOT be stored plaintext.

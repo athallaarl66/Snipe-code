@@ -8,7 +8,8 @@
 
 - Tambahkan pemeriksaan keselamatan sebelum menjalankan gate yang bisa menulis atau mengakses network.
 - Wajibkan preview dan persetujuan eksplisit pengguna sebelum install, test, akses endpoint, atau transmisi data; scope yang berubah memerlukan approval baru.
-- Blokir target DB produksi atau ambigu; nyatakan alasan dan jangan spawn command jika preflight gagal.
+- Blokir konfigurasi DB eksplisit yang remote/production-like/ambigu sebelum spawn; jika tidak ada konfigurasi DB yang terdeteksi, beri peringatan dan minta approval CLI eksplisit, tanpa menyebut target aman.
+- Batasi approval otomatis `verify-generated` pada workspace sementara yang dibuat dan diisi harness; bersihkan environment DB target/host yang diwarisi sebelum child process. Harness bukan sandbox dan tidak membatasi endpoint/network atau konfigurasi DB hardcoded.
 - Pertahankan status `unavailable` sebagai hasil non-pass, termasuk dalam exit status/kontrak machine-readable.
 - Dokumentasikan side effect, izin, perilaku `--only`, dan migrasi kompatibilitas.
 - Uji dengan runner palsu; jangan gunakan DB bersama atau tool proyek nyata untuk fixture keselamatan.
@@ -32,4 +33,4 @@ Scope audit CLI sebelumnya di `harden-audit-cli` digabung ke proposal ini agar l
 
 ## Impact
 
-Menyentuh `src/verify/`, `src/audit.rs`, `src/main.rs`, README dan test verify/CLI/audit. Perubahan exit code atau kebijakan blokir adalah kontrak publik dan harus terdokumentasi serta diuji. Belum membangun sandbox lintas OS; bila isolasi target tidak dapat dibuktikan, command berisiko harus ditolak atau memerlukan izin eksplisit sesuai desain. Tidak mencakup GUI, SQLite history, atau penambahan gate SAST/SCA.
+Menyentuh `src/verify/`, `src/audit.rs`, `src/main.rs`, README dan test verify/CLI/audit. Perubahan exit code atau kebijakan blokir adalah kontrak publik dan harus terdokumentasi serta diuji. Tidak membangun sandbox lintas OS. CLI umum menjalankan command host hanya setelah preview dan approval eksplisit; batas non-isolated harus dinyatakan, dan approval tidak melewati blokir DB eksplisit remote/production/ambigu. Sandbox-mode yang boundary-nya tidak tersedia tetap blocked. `verify-generated` hanya mendapat otorisasi otomatis untuk workspace/project hasil buatannya sendiri dan bukan bukti isolasi. Tidak mencakup GUI, SQLite history, atau penambahan gate SAST/SCA.

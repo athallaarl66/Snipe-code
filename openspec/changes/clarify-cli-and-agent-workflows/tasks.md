@@ -62,6 +62,6 @@ See `../../CR-ALIGNMENT.md`.
 - [ ] 6.1 Run `cargo fmt --check`.
 - [ ] 6.2 Run `cargo clippy --all-targets --all-features -- -D warnings`.
 - [ ] 6.3 Run `cargo test --all-targets --all-features`.
-- [ ] 6.4 Run available generated-project verification without touching user projects; report unavailable toolchains and Docker/CI runs as NOT RUN rather than pass. Docker requires separate approval.
+- [ ] 6.4 Run available generated-project verification without touching user projects; report unavailable toolchains and Docker/CI runs as NOT RUN rather than pass.
 - [ ] 6.5 Add automated coverage for launcher routes, navigation, report exports, and generated workflow artifacts; report manual Windows and agent exercises separately when available.
 - [ ] 6.6 Run `git diff --check`, confirm only intended tracked files changed, and update OpenSpec task evidence without committing, pushing, tagging, or publishing.

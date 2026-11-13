@@ -40,7 +40,7 @@ Opening `snipe-code.exe` currently starts project generation at the template pro
 
 ## CR alignment
 
-See `../../CR-ALIGNMENT.md`. Use the M0 safety/status contract and shared QA policy before workflow execution. Existing scan/export/history remain direct commands; disclose legacy audit writes before invocation and do not expose future QA/gate commands as available. Successful report writes preserve exits 0/1/3/4 and exact blocked/unavailable states. Every generated workflow requests separate scoped approval for each risky effect; core preflight cannot be overridden.
+See `../../CR-ALIGNMENT.md`. Use the M0 safety/status contract and shared QA policy before workflow execution. Existing scan/export/history remain direct commands; disclose legacy audit writes before invocation and do not expose future QA/gate commands as available. Successful report writes preserve exits 0/1/3/4 and exact blocked/unavailable states. Every generated workflow requests separate scoped approval for each risky effect; remote/production/ambiguous database preflight cannot be overridden, and an undetected database target follows the same explicit user-approval channel as the CLI.
 
 ## Impact
 

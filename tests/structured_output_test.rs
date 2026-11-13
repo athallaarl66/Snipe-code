@@ -214,6 +214,39 @@ fn test_audit_without_json_keeps_the_human_summary_on_stdout() {
 }
 
 #[test]
+fn scan_preserves_all_project_files_and_directories() {
+    fn snapshot(
+        root: &std::path::Path,
+        dir: &std::path::Path,
+        entries: &mut Vec<(PathBuf, Option<Vec<u8>>)>,
+    ) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let relative = path.strip_prefix(root).unwrap().to_path_buf();
+            if path.is_dir() {
+                entries.push((relative, None));
+                snapshot(root, &path, entries);
+            } else {
+                entries.push((relative, Some(fs::read(path).unwrap())));
+            }
+        }
+    }
+
+    let fixture = audited_project("scan-tree");
+    fixture.write("nested/deeper/example.txt", "unchanged");
+    let mut before = Vec::new();
+    snapshot(&fixture.dir, &fixture.dir, &mut before);
+    let (stdout, stderr, status) = run(&["scan", fixture.path(), "--json"]);
+    assert_eq!(status, Some(0), "{stderr}");
+    let _: serde_json::Value = serde_json::from_str(&stdout).expect("scan JSON");
+    let mut after = Vec::new();
+    snapshot(&fixture.dir, &fixture.dir, &mut after);
+    before.sort();
+    after.sort();
+    assert_eq!(before, after);
+}
+
+#[test]
 fn scan_json_is_read_only_and_export_requires_versioned_input() {
     let fixture = audited_project("scan-export");
     let before: Vec<_> = fs::read_dir(&fixture.dir)
@@ -263,6 +296,32 @@ fn scan_json_is_read_only_and_export_requires_versioned_input() {
         fixture.path(),
     ]);
     assert_eq!(bad_status, Some(3));
+}
+
+#[test]
+fn export_rejects_invalid_scan_before_writing() {
+    let fixture = Fixture::new("invalid-export");
+    let mut wrong_version = serde_json::to_value(canary_envelope()).unwrap();
+    wrong_version["schema_version"] = serde_json::json!(999);
+    let wrong_version = wrong_version.to_string();
+    for (name, content) in [
+        ("invalid.json", "not json"),
+        ("missing-fields.json", "{}"),
+        ("wrong-version.json", wrong_version.as_str()),
+    ] {
+        let input = fixture.write(name, content);
+        let (stdout, stderr, status) = run(&[
+            "export",
+            input.to_str().unwrap(),
+            "--format",
+            "md",
+            "--output",
+            fixture.path(),
+        ]);
+        assert_eq!(status, Some(3), "{stderr}");
+        assert!(!stdout.contains("Exported report"));
+        assert!(!fixture.dir.join("Audit_Report.md").exists());
+    }
 }
 
 #[test]

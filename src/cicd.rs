@@ -72,6 +72,7 @@ fn workflow_content(project_path: &Path, frontend: &str, backend: &str) -> Strin
                 steps.push("      - uses: actions/setup-go@v5".to_string());
                 steps.push("        with:".to_string());
                 steps.push("          go-version: '1.21'".to_string());
+                steps.push("          cache: false".to_string());
                 steps.push("      - run: go mod tidy".to_string());
                 steps.push("      - run: go test ./...".to_string());
                 steps.push("      - run: go vet ./...".to_string());

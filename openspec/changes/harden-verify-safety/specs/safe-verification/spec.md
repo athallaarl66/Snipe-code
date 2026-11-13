@@ -17,13 +17,13 @@ Sebelum menjalankan gate, sistem MUST menampilkan preview command, direktori ker
 - **WHEN** pengguna belum menyetujui preview atau scope aksi berubah setelah persetujuan
 - **THEN** gate terkait berstatus `blocked` sampai preview dan persetujuan eksplisit untuk scope aktual tersedia
 
-#### Scenario: Generated-project CI menjalankan fixture terisolasi
-- **WHEN** binary `verify-generated` membuat project di workspace sementara baru, hanya menjalankan manifest hasil generate, lalu menghapus workspace tersebut
-- **THEN** harness boleh menyetujui scope otomatis tanpa approval pengguna, tetapi tidak boleh menerima path project arbitrer atau melewati preflight target remote/production yang terdeteksi
+#### Scenario: Generated-project harness scope
+- **WHEN** binary `verify-generated` membuat project dalam workspace sementara buatannya sendiri
+- **THEN** harness boleh menyetujui gate otomatis hanya untuk project itu, membersihkan environment variable DB host/target yang dikenali sebelum child process, tidak menerima path arbitrer, dan tetap menjalankan preflight atas konfigurasi eksplisit yang ditemukan
 
-#### Scenario: Database test palsu
-- **WHEN** nama DB mengandung `test`, tetapi target tidak terbukti lokal dan aman
-- **THEN** sistem mengklasifikasikan target unknown/remote dan memblokir sebelum child process berjalan
+#### Scenario: Workspace sementara bukan sandbox
+- **WHEN** generated-project harness menjalankan command di workspace sementaranya
+- **THEN** dokumentasi dan laporan menyatakan workspace membatasi lokasi project buatan saja; ia tidak membatasi network, endpoint, atau konfigurasi DB hardcoded/tidak terdeteksi dan tidak boleh disebut sandbox atau bukti isolasi
 
 ### Requirement: Gate unavailable bukan lulus
 Evaluator MUST membedakan `passed`, `failed`, `unavailable`, `blocked`, dan `not-applicable`; hasil keseluruhan MUST tidak menyatakan lulus penuh jika gate applicable unavailable atau blocked.
@@ -37,16 +37,20 @@ Evaluator MUST membedakan `passed`, `failed`, `unavailable`, `blocked`, dan `not
 - **THEN** command keluar non-sukses dan menjelaskan gate yang tidak berjalan
 
 #### Scenario: Preflight menolak target
-- **WHEN** preflight keselamatan mengidentifikasi target database produksi atau ambigu
+- **WHEN** preflight keselamatan mengidentifikasi target database produksi, remote, atau ambigu
 - **THEN** sistem tidak menjalankan command gate terkait dan mengembalikan status `blocked` beserta alasan tanpa membocorkan credential
 
 ### Requirement: Database bersama tidak disentuh tanpa verifikasi target dan izin
-Gate yang dapat menjalankan test atau install hook MUST memblokir database produksi/remote/ambigu apabila konfigurasi targetnya tidak bisa dipastikan aman; nama DB yang mengandung kata `test` saja tidak membuktikan isolasi.
+Gate yang dapat menjalankan test atau install hook MUST memblokir database remote/production-like atau konfigurasi DB eksplisit yang ambigu sebelum spawn. Nama DB yang mengandung kata `test` saja tidak membuktikan isolasi. Preflight MUST membedakan konfigurasi ambigu dari kondisi tanpa konfigurasi database terdeteksi: kondisi tanpa konfigurasi menghasilkan peringatan target tidak diketahui dan memerlukan persetujuan eksplisit pengguna untuk CLI umum; tanpa persetujuan gate tetap `blocked`. Pengecualian hanya untuk binary `verify-generated`: otorisasi internal terbatas pada workspace yang dibuat harness dan project yang baru digenerate olehnya. Otorisasi ini bukan approval CLI umum dan tidak membuktikan DB tidak ada atau aman; preview/laporan tetap menyatakan target tidak terdeteksi.
 
 #### Scenario: Test menunjuk database produksi atau remote
 - **WHEN** preflight menemukan target produksi atau remote
 - **THEN** sistem menolak eksekusi sebelum proses child dimulai dan tidak mengubah database
 
-#### Scenario: Target database tidak dapat ditentukan
-- **WHEN** environment atau konfigurasi memberi target DB ambigu/tidak terbaca
-- **THEN** sistem mengembalikan blocked dengan alasan tanpa mencoba test atau install hook
+#### Scenario: Konfigurasi database ambigu atau bertentangan
+- **WHEN** environment atau konfigurasi memberi target DB ambigu, tidak terbaca, atau bertentangan
+- **THEN** sistem mengembalikan blocked dengan alasan tanpa mencoba test atau install hook, dan tidak menawarkan approval untuk melewatinya
+
+#### Scenario: Tidak ada konfigurasi database terdeteksi
+- **WHEN** preflight tidak menemukan konfigurasi database apa pun pada proyek
+- **THEN** CLI umum memperingatkan target tidak terdeteksi, tidak menyatakan database tidak ada atau aman, dan hanya melanjutkan setelah approval eksplisit atas preview yang memuat peringatan itu; `verify-generated` boleh menggunakan otorisasi internal hanya pada project hasil generate di workspace miliknya sendiri dan tetap menampilkan status target tidak terdeteksi

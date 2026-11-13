@@ -42,7 +42,7 @@ Agents that support generated invocable workflows SHALL receive separate audit, 
 - **THEN** the agent reads the relevant source and requirements, asks when expected behavior is ambiguous, writes or updates tests, and runs `snipe-code verify` with the test gate
 
 ### Requirement: Workflow instructions do not grant implicit consent
-Generated workflows SHALL preview effects and require separate scope-bound user approval before source edits, install, tests, endpoint access, data sharing, or report writes. Invoking a workflow SHALL NOT authorize all later actions or override Rust core preflight.
+Generated workflows SHALL preview effects and require separate scope-bound user approval before source edits, install, tests, endpoint access, data sharing, or report writes. Invoking a workflow SHALL NOT authorize all later actions or override Rust core preflight. Explicit remote/production-like/ambiguous DB configuration remains blocked; an undetected DB target requires the same explicit user approval as regular CLI use and is not described as safe or absent. Only the dedicated generated-project harness may use its narrowly workspace-bound internal authorization for its own generated output; this does not apply to agent workflows.
 
 #### Scenario: Finding suggests a fix and test
 - **WHEN** review identifies a confirmed issue
