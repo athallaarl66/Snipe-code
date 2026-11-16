@@ -120,6 +120,7 @@ installed through cargo. No registry keys or system files are touched.
 | `snipe-code export <scan.json> --format <md,pdf,docx> --output <DIR>` | Export saved scan result to explicit directory |
 | `snipe-code history` | Manage locally saved scan runs; export writes JSON |
 | `snipe-code verify [PATH]` | Runs the quality gates the project declares |
+| `snipe-code quality [PATH] --config <FILE>` | Versioned quality gates; see `docs/features/quality-gates.md` |
 | `snipe-code version` | The compiled version (alias `--version`) |
 | `snipe-code help [command]` | General help and per-command help |
 | `snipe-code faq` | Install, uninstall, troubleshooting |

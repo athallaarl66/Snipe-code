@@ -99,6 +99,7 @@ fn canary_envelope() -> snipe_code::history::ScanEnvelope {
     ScanEnvelope {
         schema_version: SCHEMA_VERSION,
         result: ScanResult {
+            quality: None,
             sast: Vec::new(),
             sca: None,
             run_id: "run-canary".to_string(),

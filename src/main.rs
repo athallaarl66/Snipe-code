@@ -22,6 +22,7 @@ fn main() {
         Some("analyze") => run_analyze_cmd(&args),
         Some("audit") => run_audit_cmd(&args),
         Some("scan") => run_scan_cmd(&args),
+        Some("quality") => run_quality_cmd(&args),
         Some("advisory") => run_advisory_cmd(&args),
         Some("export") => run_export_cmd(&args),
         Some("history") => run_history_cmd(&args),
@@ -182,6 +183,114 @@ fn run_scan_cmd(args: &[String]) {
             );
         }
     }
+}
+
+fn run_quality_cmd(args: &[String]) {
+    use snipe_code::{history, quality};
+    let rest = &args[2..];
+    if rest.len() == 1 && matches!(rest[0].as_str(), "--help" | "-h") {
+        println!("{QUALITY_HELP}");
+        return;
+    }
+    let mut flags = std::collections::BTreeMap::new();
+    let mut path = None;
+    let mut i = 0;
+    while i < rest.len() {
+        let token = rest[i].as_str();
+        if matches!(token, "--json" | "--save") {
+            if flags.insert(token, "").is_some() {
+                usage_error("duplicate quality option");
+            }
+        } else if matches!(
+            token,
+            "--config" | "--coverage" | "--baseline" | "--base-ref"
+        ) {
+            i += 1;
+            let value = rest
+                .get(i)
+                .filter(|s| !s.is_empty() && !s.starts_with('-'))
+                .unwrap_or_else(|| usage_error("quality option requires a value"));
+            if flags.insert(token, value).is_some() {
+                usage_error("duplicate quality option");
+            }
+        } else if token.starts_with('-') || path.is_some() {
+            usage_error("invalid quality arguments");
+        } else {
+            path = Some(token);
+        }
+        i += 1;
+    }
+    let config_path = flags
+        .get("--config")
+        .unwrap_or_else(|| usage_error("quality requires --config"));
+    if flags.contains_key("--baseline") != flags.contains_key("--base-ref") {
+        usage_error("--baseline and --base-ref must be supplied together");
+    }
+    let text = quality::read_input(Path::new(config_path)).unwrap_or_else(|e| usage_error(e));
+    let config = quality::parse_config(&text).unwrap_or_else(|e| usage_error(&e));
+    let root = Path::new(path.unwrap_or("."));
+    let result = audit::run_audit_scan(root.to_str().unwrap_or(".")).unwrap_or_else(|_| {
+        eprintln!("quality: source root unavailable");
+        std::process::exit(3);
+    });
+    let mut envelope = history::ScanEnvelope::from_audit(root, result).unwrap_or_else(|_| {
+        eprintln!("quality: invalid current scan");
+        std::process::exit(3);
+    });
+    let baseline = flags.get("--baseline").and_then(|p| {
+        quality::read_input(Path::new(p)).ok()?;
+        history::read_scan(Path::new(p)).ok()
+    });
+    let report = quality::evaluate(
+        root,
+        &config,
+        flags.get("--coverage").map(Path::new),
+        &envelope,
+        baseline.as_ref(),
+        flags.get("--base-ref").copied(),
+    )
+    .unwrap_or_else(|e| usage_error(&e));
+    let code = quality::exit_status(&report);
+    if !flags.contains_key("--json") {
+        println!("Quality gate: {}", report.state.name());
+        for metric in &report.metrics {
+            println!(
+                "{}: {}, value {:?} {}{}",
+                metric.policy.id,
+                metric.state.name(),
+                metric.value,
+                metric.policy.unit,
+                metric
+                    .reason
+                    .as_ref()
+                    .map(|r| format!(" ({r})"))
+                    .unwrap_or_default()
+            );
+        }
+        if let Some(delta) = &report.delta {
+            if let Some(reason) = &delta.reason {
+                println!("Baseline: {} ({reason})", delta.state.name());
+            }
+        }
+    }
+    envelope.result.quality = Some(report);
+    if flags.contains_key("--save") {
+        let saved = history::default_data_dir()
+            .and_then(|p| history::HistoryStore::open_in(&p))
+            .and_then(|mut store| store.save(&envelope));
+        if saved.is_err() {
+            eprintln!("quality: cannot save history");
+            std::process::exit(3);
+        }
+        eprintln!("Saved scan history {}", envelope.result.run_id);
+    }
+    if flags.contains_key("--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&envelope).expect("serialize quality")
+        );
+    }
+    std::process::exit(code);
 }
 
 fn run_advisory_cmd(args: &[String]) {
@@ -518,6 +627,7 @@ fn print_command_help(cmd: &str) {
             "snipe-code scan [PATH] [--json] [--save] [--snapshot <FILE|DIR>] - offline audit; --save stores local history"
         ),
         "advisory" => println!("{ADVISORY_HELP}"),
+        "quality" => println!("{QUALITY_HELP}"),
         "export" => println!("snipe-code export <scan.json> --format <md,pdf,docx> --output <DIR>"),
         "history" => println!(
             "snipe-code history list | show <run-id> | export <run-id> --output <FILE> | delete <project-id>"
@@ -545,6 +655,7 @@ COMMANDS
     audit      Legacy security audit dan export report
     scan       Read-only audit; JSON versioned dengan --json; --save simpan history lokal
     advisory   Refresh snapshot OSV eksplisit; perlu --yes dan curl HTTPS
+    quality    Read-only Rust metrics, imported LCOV and baseline quality policy
     export     Export hasil scan ke direktori eksplisit
     history    Simpan, lihat, export, dan hapus riwayat scan lokal
     verify     Periksa gate kualitas proyek yang sudah ada
@@ -692,6 +803,12 @@ CONTOH
     snipe-code new --template blog --frontend nextjs --backend none \
                    --database none --name site
 "#;
+
+const QUALITY_HELP: &str = "snipe-code quality [PATH] --config <FILE> [--coverage <LCOV>] [--baseline <SCAN_JSON> --base-ref <REF>] [--json] [--save]
+Read-only analysis; never runs target tests or installs dependencies.
+Coverage is imported, not computed. Baseline Git checks are local/read-only.
+Only --save writes local history. Outcomes: pass/fail/unknown/not-applicable.
+Exit: 0 pass/disabled, 1 fail, 2 usage/config, 3 runtime/no metric, 4 incomplete.";
 
 const ADVISORY_HELP: &str = "snipe-code advisory refresh <PATH> --cache <DIR> --yes
 Sends npm package names and pinned versions to https://api.osv.dev/v1/query.

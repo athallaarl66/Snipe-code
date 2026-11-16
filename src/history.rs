@@ -40,6 +40,8 @@ pub struct ScanResult {
     pub sast: Vec<crate::sast::SastReport>,
     #[serde(default)]
     pub sca: Option<crate::sca::Report>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<crate::quality::Report>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +119,7 @@ impl ScanEnvelope {
                 policy_failed: audit.policy_failed,
                 sast: audit.sast,
                 sca: audit.sca,
+                quality: None,
             },
         };
         redact_envelope(&mut envelope);
@@ -470,6 +473,9 @@ fn validate_identity(envelope: &ScanEnvelope) -> Result<(), String> {
 }
 
 fn validate_statuses(envelope: &ScanEnvelope) -> Result<(), String> {
+    if let Some(report) = &envelope.result.quality {
+        crate::quality::validate_report(report)?;
+    }
     if let Some(report) = &envelope.result.sca {
         crate::sca::validate_report(report)?;
     }
@@ -733,6 +739,7 @@ fn legacy_envelope(audit: AuditResult) -> ScanEnvelope {
             policy_failed: audit.policy_failed,
             sast: audit.sast,
             sca: audit.sca,
+            quality: None,
         },
     }
 }
@@ -880,6 +887,7 @@ mod tests {
             result: ScanResult {
                 sast: Vec::new(),
                 sca: None,
+                quality: None,
                 run_id: run_id.to_string(),
                 scanned_at_utc: "2026-01-01T00:00:00Z".to_string(),
                 project_id: project_id.to_string(),
