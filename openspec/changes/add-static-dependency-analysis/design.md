@@ -1,0 +1,48 @@
+# Design
+
+## Context
+
+Lihat proposal dan delta `static-analysis` serta `dependency-analysis`. `audit` saat ini memakai enam kelompok heuristik berbasis file/baris; `verify --security` menjalankan `npm audit`, `composer audit`, atau `dotnet list package --vulnerable`, dan menandai adapter lain not-applicable. Tidak ada advisory DB offline.
+
+## Goals / Non-Goals
+
+**Goals:** adapter rule bertahap dengan status cakupan eksplisit; fixture vulnerable/safe; SCA offline berprovenance.
+
+**Non-Goals:** menjanjikan analisis lengkap, exploit proof, semua ecosystem, advisory live, AI, atau auto-fix.
+
+## Decisions
+
+- Jadikan rule pack data berversi dengan stable `rule_id`, ecosystem/language scope, sumber/sink/sanitizer yang didukung, severity/confidence dan referensi. Implementasi pertama hanya untuk bahasa yang dipilih dan disetujui melalui corpus representatif; jangan menulis daftar dukungan belum teruji ke user docs.
+- Mulai dengan rule berbasis AST/library yang telah tersedia atau parser sederhana hanya untuk subset yang dapat divalidasi. Jangan mengklaim interprocedural flow jika engine hanya per-file/per-function. Unsupported construct, timeout, parse error dan excluded path menjadi status terpisah.
+- Pertahankan heuristik lama sebagai rule legacy/versioned untuk kompatibilitas. Jangan gabungkan fingerprint rule lama dan baru tanpa provenance; saran fix disimpan terpisah dan tidak diaplikasikan.
+- SCA adapter mengonsumsi lockfile/manifest yang terpilih dan menghasilkan graph yang resolusinya nyata. Advisory source/cache format dipilih setelah evaluasi lisensi, stabilitas, offline distribution, freshness, signature dan ukuran; tidak mengunduh tool proyek.
+- Simpan snapshot atomik dengan source, format/version, checksum/signature bila tersedia, fetch time dan expiry policy. Periksa integritas sebelum aktivasi; snapshot absent/stale/schema mismatch = unknown.
+- Uji positive/negative fixtures per rule dan ecosystem: safe parameterized query, escaped/sanitized sink, fake secret, vulnerable dependency version, unaffected version, missing/invalid lockfile, stale snapshot dan offline no-egress.
+
+## Approved implementation slice
+
+- User selected Rust syntax-only intrafunction analysis, corpus `tests/fixtures/sast/rust`, paired shell/SQL/HTML fixtures. Rule metadata lives in `src/sast/rules.json`; source and sink evidence contains line numbers, not source text. Method/type resolution, aliases, cross-function flow, macro expansion and control-flow assignment are outside support. Size/depth budgets yield unknown; parse errors yield error. This is not a wall-clock timeout or whole-program guarantee.
+- User selected npm `package-lock.json` lockfileVersion 3. Exact direct/transitive installed package versions are the only advisory query inputs; missing, invalid or unsupported inputs remain unknown. No npm install or project execution.
+- User approved OSV per-package/version query snapshots with GHSA-only records, GitHub Advisory Database attribution and CC-BY-4.0 notice. No advisory bundle distributed. OSV upstream sources other than GHSA remain unknown. Sources: https://google.github.io/osv.dev/api/ and https://github.com/github/advisory-database/blob/main/LICENSE.md . This scoped query cache is not a complete ecosystem advisory database.
+- Snapshot format version, source/provenance, retrieval time, seven-day maximum age and SHA-256 payload digest are required. Missing/invalid/future timestamps, malformed/integrity-failed/absent snapshots yield unknown; expired snapshots remain stale and never clean. SHA-256 checks corruption, not authenticity or a signature. HTTPS authenticates the selected OSV endpoint under host TLS trust.
+- Refresh is a separate explicit operation with `--yes` consent before any request. Only package names and exact versions go to `https://api.osv.dev`; no source or credentials. Validate all responses before activating a snapshot through atomic replacement; rejected refresh sends zero requests and invalid updates retain the active snapshot. Tests use fake transport; no live refresh is authorized by selecting this implementation policy.
+
+## CR alignment
+
+See `../../CR-ALIGNMENT.md` for requirement-to-task acceptance mapping and dependency boundaries. Current checkboxes are evidence claims, not completion inferred from this planning update.
+
+## Risks / Trade-offs
+
+- [False positive/negative] Nyatakan confidence/evidence; rule tanpa pair fixture tidak dirilis.
+- [Parser subset memberi rasa coverage luas] Hanya nyatakan bahasa/construct yang diuji; unsupported menghasilkan unknown.
+- [Advisory distribution/licensing berubah] Abstraksikan format dan pin provenance; perubahan source perlu security/legal review.
+- [Snapshot supply-chain compromise] Validasi checksum/signature dan atomic replacement; fail closed tanpa merusak snapshot lama.
+- [Heuristik lama berubah baseline] Versioned rule IDs dan label legacy.
+
+## Migration Plan
+
+1. Gunakan envelope hasil `scan-history`; integrasi memverifikasi kontrak yang tersedia tanpa menunggu archive.
+2. Tambahkan satu ecosystem/rule slice dengan fixture dan docs aktual; tambah ekosistem hanya setelah gate fixtures lulus.
+3. Tambahkan import/refresh snapshot sebagai operasi terpisah opt-in; default SCA offline.
+4. Jika rule pack gagal, matikan versi pack terkait; simpan history lama bersama rule version, jangan rewrite hasil historis.
+5. Verifikasi kontrak status SAST/SCA saat quality gate mengonsumsinya; tugas independen tidak menunggu archive.

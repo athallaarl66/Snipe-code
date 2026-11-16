@@ -115,6 +115,24 @@ fn test_workflow_uses_npm_install_not_ci() {
 }
 
 #[test]
+fn test_go_workflow_does_not_require_go_sum_for_setup() {
+    let dir = temp_project("workflow-go-no-sum");
+    assert!(!dir.join("backend/go.sum").exists());
+    cicd::generate_ci_cd(&dir.to_string_lossy(), "none", "go-gin").unwrap();
+    let content = fs::read_to_string(dir.join(".github/workflows/main.yml")).unwrap();
+    assert!(content.contains("          cache: false"));
+    for command in [
+        "go mod tidy",
+        "go test ./...",
+        "go vet ./...",
+        "go build ./...",
+    ] {
+        assert!(content.contains(command), "missing {command}");
+    }
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn test_non_container_backend_omits_backend_compose_service() {
     let dir = temp_project("compose-go");
     snipe_code::docker::generate_docker_compose(&dir.to_string_lossy(), "postgresql", "go-gin")
@@ -194,6 +212,82 @@ fn test_audit_ignores_placeholder_dotenv() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn test_audit_skips_dotenv_symlink_outside_root() {
+    use std::os::unix::fs::symlink;
+
+    let dir = temp_project("dotenv-link-root");
+    let outside = temp_project("dotenv-link-outside");
+    let secret = "outside-root-secret-canary";
+    let outside_env = outside.join("secrets.env");
+    fs::write(&outside_env, format!("DB_PASSWORD={secret}\n")).unwrap();
+    symlink(&outside_env, dir.join(".env")).expect("create fixture symlink");
+
+    let report = audit::run_audit_report(&dir.to_string_lossy(), "md").unwrap();
+    let json = audit::render_json(&report).unwrap();
+    let markdown = fs::read_to_string(dir.join("Audit_Report.md")).unwrap();
+
+    assert!(
+        report
+            .findings
+            .iter()
+            .all(|finding| !finding.file.ends_with(".env")),
+        "symlinked .env must not produce findings: {:?}",
+        report.findings
+    );
+    assert!(
+        !json.contains(secret),
+        "JSON exposed external content: {json}"
+    );
+    assert!(
+        !markdown.contains(secret),
+        "Markdown exposed external content: {markdown}"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&outside);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_audit_skips_junction_outside_root() {
+    use std::process::Command;
+
+    let dir = temp_project("junction-root");
+    let outside = temp_project("junction-outside");
+    let secret = "outside-root-secret-canary";
+    fs::write(outside.join(".env"), format!("DB_PASSWORD={secret}\n")).unwrap();
+
+    let output = Command::new("cmd.exe")
+        .args(["/C", "mklink", "/J"])
+        .arg(dir.join("linked"))
+        .arg(&outside)
+        .output()
+        .expect("create junction fixture");
+    assert!(
+        output.status.success(),
+        "mklink /J failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let report = audit::run_audit_report(&dir.to_string_lossy(), "md").unwrap();
+    let json = audit::render_json(&report).unwrap();
+    let markdown = fs::read_to_string(dir.join("Audit_Report.md")).unwrap();
+
+    assert!(
+        !json.contains(secret),
+        "JSON exposed junction target: {json}"
+    );
+    assert!(
+        !markdown.contains(secret),
+        "Markdown exposed junction target: {markdown}"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&outside);
+}
+
 #[test]
 fn test_audit_ignores_keyword_only_lines_but_keeps_literal_risks() {
     let safe = temp_project("audit-safe-pairs");
@@ -237,6 +331,31 @@ fn test_audit_ignores_keyword_only_lines_but_keeps_literal_risks() {
             .any(|finding| finding.category == "Stack Source Risk")
     );
     let _ = fs::remove_dir_all(&unsafe_project);
+}
+
+#[test]
+fn rust_sast_fixtures_distinguish_tainted_and_literal_shell_commands() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let tainted = fs::read_to_string(root.join("tests/fixtures/sast/rust/shell-tainted.rs"))
+        .expect("tainted shell fixture");
+    let safe = fs::read_to_string(root.join("tests/fixtures/sast/rust/shell-literal-safe.rs"))
+        .expect("safe shell fixture");
+
+    assert!(tainted.contains("std::env::var"));
+    assert!(tainted.contains("format!(\"echo {input}\")"));
+    assert!(tainted.contains("Command::new(\"sh\")"));
+    assert!(safe.contains(".arg(\"echo fixed\")"));
+    assert!(!safe.contains("std::env::var"));
+
+    let project = temp_project("rust-sast-contract");
+    fs::create_dir_all(project.join("src")).unwrap();
+    fs::write(project.join("src/main.rs"), &tainted).unwrap();
+    let report = audit::run_audit_scan(&project.to_string_lossy()).unwrap();
+    assert!(report.findings.iter().any(|finding| {
+        finding.category == "Static Analysis"
+            && finding.description.contains("sast-rust-shell-tainted")
+    }));
+    let _ = fs::remove_dir_all(project);
 }
 
 #[test]

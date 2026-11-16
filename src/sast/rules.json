@@ -1,0 +1,33 @@
+{
+  "pack_version": "1.0.0",
+  "supported_languages": ["rust"],
+  "scope": "Candidate syntax-only intrafunction analysis; no type resolution, aliases, interprocedural flow or macro expansion",
+  "corpus": "tests/fixtures/sast/rust; parse-only fixtures, not executed target applications",
+  "unsupported": "Unmodeled transforms, assignment/control flow, unsupported macros and exceeded input budgets produce unknown; parse failures produce error",
+  "rules": [
+    {
+      "id": "sast-rust-shell-tainted", "version": "1.0.0", "state": "released",
+      "scope": "Rust straight-line let bindings; std::env::var/args to literal sh/bash -c Command builder chains",
+      "evidence_policy": "Candidate source and sink line numbers only; no source text or literal values",
+      "severity": "HIGH", "confidence": "medium", "reference": "CWE-78",
+      "positive_fixture": "tests/fixtures/sast/rust/shell-tainted.rs",
+      "negative_fixture": "tests/fixtures/sast/rust/shell-literal-safe.rs"
+    },
+    {
+      "id": "sast-rust-sql-tainted-format", "version": "1.0.0", "state": "released",
+      "scope": "Rust env input in formatted SQL passed to methods named execute/query/query_row/prepare; receiver type unverified",
+      "evidence_policy": "Candidate source and sink line numbers only; no SQL or parameter values",
+      "severity": "HIGH", "confidence": "medium", "reference": "CWE-89",
+      "positive_fixture": "tests/fixtures/sast/rust/sql-tainted-format.rs",
+      "negative_fixture": "tests/fixtures/sast/rust/sql-parameterized-safe.rs"
+    },
+    {
+      "id": "sast-rust-html-tainted-output", "version": "1.0.0", "state": "released",
+      "scope": "Rust env input to axum::response::Html or warp::reply::html; ammonia::clean and html_escape::encode_safe protect HTML only",
+      "evidence_policy": "Candidate source and sink line numbers only; no HTML or credential values",
+      "severity": "MEDIUM", "confidence": "medium", "reference": "CWE-79",
+      "positive_fixture": "tests/fixtures/sast/rust/html-tainted-output.rs",
+      "negative_fixture": "tests/fixtures/sast/rust/html-ammonia-sanitized.rs"
+    }
+  ]
+}

@@ -21,6 +21,11 @@ fn main() {
         Some("new") => run_new_cmd(&args),
         Some("analyze") => run_analyze_cmd(&args),
         Some("audit") => run_audit_cmd(&args),
+        Some("scan") => run_scan_cmd(&args),
+        Some("quality") => run_quality_cmd(&args),
+        Some("advisory") => run_advisory_cmd(&args),
+        Some("export") => run_export_cmd(&args),
+        Some("history") => run_history_cmd(&args),
         Some("verify") => run_verify_cmd(&args),
         // Backward compatible: snipe-code --dry-run
         Some("--dry-run") => run_new_cmd(&args),
@@ -96,7 +101,350 @@ fn usage_error(message: &str) -> ! {
     std::process::exit(2);
 }
 
+fn run_scan_cmd(args: &[String]) {
+    let rest: Vec<String> = args.iter().skip(2).cloned().collect();
+    let mut path = ".";
+    let mut path_seen = false;
+    let mut json = false;
+    let mut save = false;
+    let mut snapshot = None;
+    let mut tokens = rest.iter();
+    while let Some(token) = tokens.next() {
+        match token.as_str() {
+            "--snapshot" => {
+                if snapshot.is_some() {
+                    usage_error("duplicate --snapshot");
+                }
+                snapshot = Some(
+                    tokens
+                        .next()
+                        .filter(|s| !s.starts_with('-'))
+                        .unwrap_or_else(|| usage_error("missing --snapshot path")),
+                );
+            }
+            "--json" if !json => json = true,
+            "--json" => usage_error("duplicate --json"),
+            "--save" if !save => save = true,
+            "--save" => usage_error("duplicate --save"),
+            option if option.starts_with('-') => usage_error(&format!("unknown option {option}")),
+            value if !path_seen => {
+                path = value;
+                path_seen = true;
+            }
+            _ => usage_error("multiple scan paths"),
+        }
+    }
+    let mut result = audit::run_audit_scan(path).unwrap_or_else(|error| {
+        eprintln!("scan: {error}");
+        std::process::exit(3);
+    });
+    if let Some(snapshot) = snapshot {
+        result.sca = Some(snipe_code::sca::analyze(
+            Path::new(path),
+            Some(Path::new(snapshot)),
+            snipe_code::sca::now(),
+        ));
+    }
+    let envelope = snipe_code::history::ScanEnvelope::from_audit(Path::new(path), result)
+        .unwrap_or_else(|error| {
+            eprintln!("scan: {error}");
+            std::process::exit(3);
+        });
+    if save {
+        let data_dir = snipe_code::history::default_data_dir().unwrap_or_else(|error| {
+            eprintln!("history: {error}");
+            std::process::exit(3);
+        });
+        let mut store =
+            snipe_code::history::HistoryStore::open_in(&data_dir).unwrap_or_else(|error| {
+                eprintln!("history: {error}");
+                std::process::exit(3);
+            });
+        store.save(&envelope).unwrap_or_else(|error| {
+            eprintln!("history: {error}");
+            std::process::exit(3);
+        });
+        eprintln!("Saved scan history {}", envelope.result.run_id);
+    }
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&envelope).expect("serialize scan result")
+        );
+    } else {
+        println!(
+            "Audit scan: {} HIGH, {} MEDIUM, {} LOW",
+            envelope.result.high, envelope.result.medium, envelope.result.low
+        );
+        if let Some(report) = &envelope.result.sca {
+            println!(
+                "Dependency analysis: {} ({})",
+                report.status, report.coverage
+            );
+        }
+    }
+}
+
+fn run_quality_cmd(args: &[String]) {
+    use snipe_code::{history, quality};
+    let rest = &args[2..];
+    if rest.len() == 1 && matches!(rest[0].as_str(), "--help" | "-h") {
+        println!("{QUALITY_HELP}");
+        return;
+    }
+    let mut flags = std::collections::BTreeMap::new();
+    let mut path = None;
+    let mut i = 0;
+    while i < rest.len() {
+        let token = rest[i].as_str();
+        if matches!(token, "--json" | "--save") {
+            if flags.insert(token, "").is_some() {
+                usage_error("duplicate quality option");
+            }
+        } else if matches!(
+            token,
+            "--config" | "--coverage" | "--baseline" | "--base-ref"
+        ) {
+            i += 1;
+            let value = rest
+                .get(i)
+                .filter(|s| !s.is_empty() && !s.starts_with('-'))
+                .unwrap_or_else(|| usage_error("quality option requires a value"));
+            if flags.insert(token, value).is_some() {
+                usage_error("duplicate quality option");
+            }
+        } else if token.starts_with('-') || path.is_some() {
+            usage_error("invalid quality arguments");
+        } else {
+            path = Some(token);
+        }
+        i += 1;
+    }
+    let config_path = flags
+        .get("--config")
+        .unwrap_or_else(|| usage_error("quality requires --config"));
+    if flags.contains_key("--baseline") != flags.contains_key("--base-ref") {
+        usage_error("--baseline and --base-ref must be supplied together");
+    }
+    let text = quality::read_input(Path::new(config_path)).unwrap_or_else(|e| usage_error(e));
+    let config = quality::parse_config(&text).unwrap_or_else(|e| usage_error(&e));
+    let root = Path::new(path.unwrap_or("."));
+    let result = audit::run_audit_scan(root.to_str().unwrap_or(".")).unwrap_or_else(|_| {
+        eprintln!("quality: source root unavailable");
+        std::process::exit(3);
+    });
+    let mut envelope = history::ScanEnvelope::from_audit(root, result).unwrap_or_else(|_| {
+        eprintln!("quality: invalid current scan");
+        std::process::exit(3);
+    });
+    let baseline = flags.get("--baseline").and_then(|p| {
+        quality::read_input(Path::new(p)).ok()?;
+        history::read_scan(Path::new(p)).ok()
+    });
+    let report = quality::evaluate(
+        root,
+        &config,
+        flags.get("--coverage").map(Path::new),
+        &envelope,
+        baseline.as_ref(),
+        flags.get("--base-ref").copied(),
+    )
+    .unwrap_or_else(|e| usage_error(&e));
+    let code = quality::exit_status(&report);
+    if !flags.contains_key("--json") {
+        println!("Quality gate: {}", report.state.name());
+        for metric in &report.metrics {
+            println!(
+                "{}: {}, value {:?} {}{}",
+                metric.policy.id,
+                metric.state.name(),
+                metric.value,
+                metric.policy.unit,
+                metric
+                    .reason
+                    .as_ref()
+                    .map(|r| format!(" ({r})"))
+                    .unwrap_or_default()
+            );
+        }
+        if let Some(delta) = &report.delta {
+            if let Some(reason) = &delta.reason {
+                println!("Baseline: {} ({reason})", delta.state.name());
+            }
+        }
+    }
+    envelope.result.quality = Some(report);
+    if flags.contains_key("--save") {
+        let saved = history::default_data_dir()
+            .and_then(|p| history::HistoryStore::open_in(&p))
+            .and_then(|mut store| store.save(&envelope));
+        if saved.is_err() {
+            eprintln!("quality: cannot save history");
+            std::process::exit(3);
+        }
+        eprintln!("Saved scan history {}", envelope.result.run_id);
+    }
+    if flags.contains_key("--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&envelope).expect("serialize quality")
+        );
+    }
+    std::process::exit(code);
+}
+
+fn run_advisory_cmd(args: &[String]) {
+    if args.len() == 3 && matches!(args[2].as_str(), "--help" | "-h") {
+        println!("{ADVISORY_HELP}");
+        return;
+    }
+    if !matches!(args.len(), 6 | 7)
+        || args[2] != "refresh"
+        || args[4] != "--cache"
+        || args[3].starts_with('-')
+        || args[5].starts_with('-')
+        || (args.len() == 7 && args[6] != "--yes")
+    {
+        usage_error("usage: snipe-code advisory refresh <PATH> --cache <DIR> --yes");
+    }
+    if args.len() != 7 {
+        usage_error("refresh requires explicit --yes consent");
+    }
+    let snapshot = snipe_code::sca::refresh(
+        Path::new(&args[3]),
+        Path::new(&args[5]),
+        true,
+        snipe_code::sca::fetch_osv,
+        snipe_code::sca::now(),
+    )
+    .unwrap_or_else(|error| {
+        eprintln!("advisory: {error}");
+        std::process::exit(3);
+    });
+    println!("Activated snapshot {}", snapshot.display());
+}
+
+fn run_history_cmd(args: &[String]) {
+    let operation = args
+        .get(2)
+        .map(String::as_str)
+        .unwrap_or_else(|| usage_error("history requires list, show, export, or delete"));
+    if !matches!(
+        (operation, args.len()),
+        ("list", 3) | ("show", 4) | ("export", 6) | ("delete", 4)
+    ) || (operation == "export" && args[4] != "--output")
+        || (operation != "list" && args[3].starts_with('-'))
+        || (operation == "export" && args[5].starts_with('-'))
+    {
+        usage_error("invalid history arguments");
+    }
+    let data_dir = snipe_code::history::default_data_dir().unwrap_or_else(|error| {
+        eprintln!("history: {error}");
+        std::process::exit(3);
+    });
+    let mut store = snipe_code::history::HistoryStore::open_in(&data_dir).unwrap_or_else(|error| {
+        eprintln!("history: {error}");
+        std::process::exit(3);
+    });
+    match operation {
+        "list" if args.len() == 3 => {
+            let rows = store.list().unwrap_or_else(|error| history_error(&error));
+            for row in rows {
+                println!("{}\t{}\t{}", row.run_id, row.scanned_at_utc, row.project_id);
+            }
+        }
+        "show" if args.len() == 4 => {
+            let result = store
+                .get(&args[3])
+                .unwrap_or_else(|error| history_error(&error));
+            match result {
+                Some(result) => println!("{}", serde_json::to_string_pretty(&result).unwrap()),
+                None => history_error("unknown run id"),
+            }
+        }
+        "export" if args.len() == 6 && args[4] == "--output" => {
+            let result = store
+                .get(&args[3])
+                .unwrap_or_else(|error| history_error(&error));
+            let result = result.unwrap_or_else(|| history_error("unknown run id"));
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&args[5])
+                .unwrap_or_else(|error| history_error(&error.to_string()));
+            use std::io::Write;
+            serde_json::to_writer_pretty(&mut file, &result)
+                .and_then(|()| file.write_all(b"\n").map_err(serde_json::Error::io))
+                .unwrap_or_else(|error| history_error(&error.to_string()));
+            println!("Exported {}", args[5]);
+        }
+        "delete" if args.len() == 4 => {
+            let deleted = store
+                .delete_project(&args[3])
+                .unwrap_or_else(|error| history_error(&error));
+            if deleted == 0 {
+                history_error("unknown project id");
+            }
+            println!("Deleted {deleted} scan run(s) for project {}", args[3]);
+        }
+        "list" | "show" | "export" | "delete" => usage_error("invalid history arguments"),
+        _ => usage_error("unknown history operation"),
+    }
+}
+
+fn history_error(message: &str) -> ! {
+    eprintln!("history: {message}");
+    std::process::exit(3);
+}
+
+fn run_export_cmd(args: &[String]) {
+    let rest: Vec<String> = args.iter().skip(2).cloned().collect();
+    let mut input = None;
+    let mut format = None;
+    let mut output = None;
+    let mut i = 0;
+    while i < rest.len() {
+        match rest[i].as_str() {
+            "--format" | "--output" => {
+                let option = rest[i].clone();
+                let value = rest
+                    .get(i + 1)
+                    .filter(|value| !value.starts_with('-'))
+                    .unwrap_or_else(|| usage_error(&format!("missing value for {option}")));
+                let slot = if option == "--format" {
+                    &mut format
+                } else {
+                    &mut output
+                };
+                if slot.replace(value.clone()).is_some() {
+                    usage_error(&format!("duplicate {option}"));
+                }
+                i += 2;
+            }
+            token if token.starts_with('-') => usage_error(&format!("unknown option {token}")),
+            token if input.is_none() => {
+                input = Some(token.to_string());
+                i += 1;
+            }
+            _ => usage_error("multiple scan result paths"),
+        }
+    }
+    let input = input.unwrap_or_else(|| usage_error("missing scan result path"));
+    let format = format.unwrap_or_else(|| usage_error("missing --format"));
+    let output = output.unwrap_or_else(|| usage_error("missing --output"));
+    audit::export_scan_json(Path::new(&input), &format, Path::new(&output)).unwrap_or_else(
+        |error| {
+            eprintln!("export: {error}");
+            std::process::exit(3);
+        },
+    );
+    println!("Exported report to {}", output);
+}
+
 fn run_audit_cmd(args: &[String]) {
+    if let Err(error) = audit::validate_audit_args(&args[2..]) {
+        usage_error(&format!("Usage error: {error}"));
+    }
     let mut path = ".".to_string();
     let mut export_opt: Option<String> = None;
     let mut json = false;
@@ -140,6 +488,7 @@ fn run_audit_cmd(args: &[String]) {
         }
     };
 
+    eprintln!("Compatibility notice: audit writes report files into target directory.");
     match audit::run_audit_report(&path, &export_format) {
         Ok(result) => {
             if json {
@@ -227,7 +576,9 @@ fn run_verify_cmd(args: &[String]) {
         println!("{}", VERIFY_HELP);
         return;
     }
-    let options = match verify::Options::parse(&rest) {
+    let json = rest.iter().any(|token| token == "--json");
+    let options_args: Vec<String> = rest.into_iter().filter(|token| token != "--json").collect();
+    let options = match verify::Options::parse(&options_args) {
         Ok(options) => options,
         Err(error) => {
             eprintln!("Usage error: {}", error);
@@ -244,7 +595,17 @@ fn run_verify_cmd(args: &[String]) {
     if report.parts.is_empty() {
         eprintln!("verify: no gates found in {}", options.path.display());
     }
-    verify::print_report(&report);
+    if json {
+        match verify::render_json(&report) {
+            Ok(text) => println!("{text}"),
+            Err(error) => {
+                eprintln!("verify: cannot render JSON: {error}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        verify::print_report(&report);
+    }
     std::process::exit(verify::exit_status(&report));
 }
 
@@ -262,6 +623,15 @@ fn print_command_help(cmd: &str) {
     match cmd {
         "analyze" => println!("{}", ANALYZE_HELP),
         "audit" => println!("{}", AUDIT_HELP),
+        "scan" => println!(
+            "snipe-code scan [PATH] [--json] [--save] [--snapshot <FILE|DIR>] - offline audit; --save stores local history"
+        ),
+        "advisory" => println!("{ADVISORY_HELP}"),
+        "quality" => println!("{QUALITY_HELP}"),
+        "export" => println!("snipe-code export <scan.json> --format <md,pdf,docx> --output <DIR>"),
+        "history" => println!(
+            "snipe-code history list | show <run-id> | export <run-id> --output <FILE> | delete <project-id>"
+        ),
         "verify" => println!("{}", VERIFY_HELP),
         "new" => println!("{}", NEW_HELP),
         "help" => print_help(),
@@ -282,7 +652,12 @@ COMMANDS
                (default jika tidak ada command)
     analyze    Laporkan isi proyek: bahasa dan ukurannya, struktur, entry point,
                dan dependency yang dideklarasikan (read-only, offline)
-    audit      Scan folder proyek dan export laporan security audit
+    audit      Legacy security audit dan export report
+    scan       Read-only audit; JSON versioned dengan --json; --save simpan history lokal
+    advisory   Refresh snapshot OSV eksplisit; perlu --yes dan curl HTTPS
+    quality    Read-only Rust metrics, imported LCOV and baseline quality policy
+    export     Export hasil scan ke direktori eksplisit
+    history    Simpan, lihat, export, dan hapus riwayat scan lokal
     verify     Periksa gate kualitas proyek yang sudah ada
     help       Tampilkan bantuan ini (alias: --help, -h)
     version    Tampilkan versi CLI yang di-compile (alias: --version)
@@ -303,6 +678,7 @@ OPTIONS
     --json         Hasil terstruktur (JSON) di stdout untuk new, analyze, dan
                    audit; progress serta pesan lain ke stderr
     --export <f>   Format export audit: md, pdf, docx (koma, contoh: pdf,docx)
+    --save         (scan) Simpan hasil ke SQLite lokal; default scan tidak menyimpan
     --only <g>     (verify) Batasi ke satu gate: install, lint, typecheck, test,
                    build, security
     --security     (verify) Tambahkan gate kerentanan dependency
@@ -323,6 +699,11 @@ CONTOH
     snipe-code audit .                  Scan folder ini (pilih format interaktif)
     snipe-code audit . --export pdf,docx
                                         Scan dan export PDF + DOCX langsung
+    snipe-code scan . --json --save     Scan lalu simpan hasil ke history lokal
+    snipe-code history list             Daftar run yang tersimpan
+    snipe-code history show <run-id>    Tampilkan hasil kanonik
+    snipe-code history delete <project-id>
+                                        Hapus run milik satu project lokal
     snipe-code verify .                 Periksa gate proyek di direktori ini
     snipe-code verify ../app --only test
                                         Jalankan hanya gate test
@@ -423,6 +804,19 @@ CONTOH
                    --database none --name site
 "#;
 
+const QUALITY_HELP: &str = "snipe-code quality [PATH] --config <FILE> [--coverage <LCOV>] [--baseline <SCAN_JSON> --base-ref <REF>] [--json] [--save]
+Read-only analysis; never runs target tests or installs dependencies.
+Coverage is imported, not computed. Baseline Git checks are local/read-only.
+Only --save writes local history. Outcomes: pass/fail/unknown/not-applicable.
+Exit: 0 pass/disabled, 1 fail, 2 usage/config, 3 runtime/no metric, 4 incomplete.";
+
+const ADVISORY_HELP: &str = "snipe-code advisory refresh <PATH> --cache <DIR> --yes
+Sends npm package names and pinned versions to https://api.osv.dev/v1/query.
+Requires curl with HTTPS. No source or credentials sent. GHSA records only,
+GitHub Advisory Database, CC-BY-4.0. Seven-day snapshot freshness; SHA-256
+checks corruption, not authenticity. Scan stays offline; select cache or file
+with scan --snapshot <FILE|DIR>. Invalid refresh retains previous snapshot.";
+
 const AUDIT_HELP: &str = r#"snipe-code audit — Security audit folder proyek
 
 USAGE
@@ -516,13 +910,21 @@ OPTIONS
                     composer audit, dotnet list package --vulnerable
     --no-install    Lewati gate install. Gate lain tetap jalan, dan gate
                     install dilaporkan sebagai not-applicable
+    --json          Emit report terstruktur JSON ke stdout
     -h, --help      Bantuan perintah ini
+
+KEAMANAN
+    Setiap gate menampilkan command, direktori, efek yang diketahui, dan meminta
+    persetujuan interaktif untuk scope tepat. Tanpa terminal/approval, gate blocked.
+    Gate install/test diblokir bila target DB unknown, remote, atau production-like.
+    Preflight tidak sandbox command proyek dan tidak dapat membuktikan semua efek.
 
 EXIT STATUS
     0   semua gate yang berlaku lulus
     1   ada gate yang gagal (nama gate dan perintahnya dicetak)
     2   kesalahan pemakaian (opsi atau gate tidak dikenal)
-    3   tidak ada gate yang dijalankan (proyek tidak dikenali / tool tidak ada)
+    3   tidak ada gate dieksekusi atau tidak ada gate ditemukan
+    4   hasil parsial: ada gate unavailable atau blocked
 
 CONTOH
     snipe-code verify .

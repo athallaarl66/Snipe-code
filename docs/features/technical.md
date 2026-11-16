@@ -337,8 +337,12 @@ lockfile pin overrides yank status while a fresh resolve does not.
 
 ## 13. Limits and unimplemented features
 
-- Audit findings carry severity, location, and message strings rather than typed rule
-  ids, so cross-run deduplication is not implemented.
+- Audit findings use heuristic category-derived rule IDs and location-based fingerprints.
+  Fingerprints are stable only for the same rule version, file, line, and severity; they do
+  not match renamed files or findings shifted to another line.
+- `scan --save` writes versioned results to the user data directory. History stays opt-in;
+  SQLite permissions follow the OS policy but the database is not encrypted. There is no
+  automatic expiry; users remove a project's runs with `history delete <project-id>`.
 - PDF export is page-limited; a long finding list reports an omission count instead of
   rendering every entry.
 - `verify` recognizes the npm, Composer, Go, Maven, .NET, and Cargo ecosystems. Python and

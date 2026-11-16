@@ -59,15 +59,78 @@ fn run(args: &[&str]) -> (String, String, Option<i32>) {
     )
 }
 
+fn run_with_data_dir(args: &[&str], data_dir: &std::path::Path) -> (String, String, Option<i32>) {
+    let out = Command::new(BIN)
+        .args(args)
+        .env("SNIPE_CODE_DATA_DIR", data_dir)
+        .env(
+            "DATABASE_URL",
+            "postgresql://history-user:history-db-canary@127.0.0.1/target",
+        )
+        .output()
+        .expect("run snipe-code");
+    (
+        String::from_utf8_lossy(&out.stdout).to_string(),
+        String::from_utf8_lossy(&out.stderr).to_string(),
+        out.status.code(),
+    )
+}
+
 /// A project the audit has something to say about: one HIGH hardcoded secret.
 fn audited_project(label: &str) -> Fixture {
     let fixture = Fixture::new(label);
     fixture.write(
         "src/config.js",
-        "const api_key = \"12345\";\nexport default api_key;\n",
+        "const api_key = \"scan-canary-7f93a\";\nexport default api_key;\n",
     );
     fixture.write(".gitignore", "node_modules\n.env\n");
     fixture
+}
+
+fn canary_envelope() -> snipe_code::history::ScanEnvelope {
+    use snipe_code::history::{
+        RULE_VERSION, RuleStatus, SCHEMA_VERSION, ScanEnvelope, ScanFinding, ScanResult,
+        finding_fingerprint,
+    };
+
+    let rule_id = "hardcoded-secret";
+    let file = "src/config.js";
+    let severity = "HIGH";
+    ScanEnvelope {
+        schema_version: SCHEMA_VERSION,
+        result: ScanResult {
+            quality: None,
+            sast: Vec::new(),
+            sca: None,
+            run_id: "run-canary".to_string(),
+            scanned_at_utc: "2026-11-10T00:00:00Z".to_string(),
+            project_id: "project-canary".to_string(),
+            tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            rule_version: RULE_VERSION.to_string(),
+            detected_scopes: vec!["javascript".to_string()],
+            evaluated_rule_groups: vec![RuleStatus {
+                rule_group: "common".to_string(),
+                status: "evaluated".to_string(),
+            }],
+            exclusions: vec![],
+            findings: vec![ScanFinding {
+                rule_version: None,
+                rule_id: rule_id.to_string(),
+                fingerprint_version: 1,
+                fingerprint: finding_fingerprint(RULE_VERSION, rule_id, file, 4, severity),
+                severity: severity.to_string(),
+                category: "Hardcoded Secret".to_string(),
+                description: "password=history-canary-7f93a".to_string(),
+                file: file.to_string(),
+                line: 4,
+            }],
+            high: 1,
+            medium: 0,
+            low: 0,
+            highest_severity: Some(severity.to_string()),
+            policy_failed: true,
+        },
+    }
 }
 
 // --- 2.2 structured audit --------------------------------------------------
@@ -154,6 +217,340 @@ fn test_audit_without_json_keeps_the_human_summary_on_stdout() {
     );
 }
 
+#[test]
+fn scan_preserves_all_project_files_and_directories() {
+    fn snapshot(
+        root: &std::path::Path,
+        dir: &std::path::Path,
+        entries: &mut Vec<(PathBuf, Option<Vec<u8>>)>,
+    ) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let relative = path.strip_prefix(root).unwrap().to_path_buf();
+            if path.is_dir() {
+                entries.push((relative, None));
+                snapshot(root, &path, entries);
+            } else {
+                entries.push((relative, Some(fs::read(path).unwrap())));
+            }
+        }
+    }
+
+    let fixture = audited_project("scan-tree");
+    fixture.write("nested/deeper/example.txt", "unchanged");
+    let mut before = Vec::new();
+    snapshot(&fixture.dir, &fixture.dir, &mut before);
+    let (stdout, stderr, status) = run(&["scan", fixture.path(), "--json"]);
+    assert_eq!(status, Some(0), "{stderr}");
+    let _: serde_json::Value = serde_json::from_str(&stdout).expect("scan JSON");
+    let mut after = Vec::new();
+    snapshot(&fixture.dir, &fixture.dir, &mut after);
+    before.sort();
+    after.sort();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn scan_json_is_read_only_and_export_requires_versioned_input() {
+    let fixture = audited_project("scan-export");
+    let before: Vec<_> = fs::read_dir(&fixture.dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    let (stdout, _, status) = run(&["scan", fixture.path(), "--json"]);
+    let after: Vec<_> = fs::read_dir(&fixture.dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(
+        before, after,
+        "scan must not change project directory entries"
+    );
+    assert_eq!(status, Some(0));
+    let scan: serde_json::Value = serde_json::from_str(&stdout).expect("scan JSON");
+    assert_eq!(scan["schema_version"], snipe_code::history::SCHEMA_VERSION);
+    assert!(
+        scan["result"]["evaluated_rule_groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|status| status["status"] == "unknown")
+    );
+    assert!(!fixture.dir.join("Audit_Report.md").exists());
+
+    let scan_file = fixture.write("scan.json", &stdout);
+    let (export_stdout, _, export_status) = run(&[
+        "export",
+        scan_file.to_str().unwrap(),
+        "--format",
+        "md",
+        "--output",
+        fixture.path(),
+    ]);
+    assert_eq!(export_status, Some(0), "{export_stdout}");
+    assert!(fixture.dir.join("Audit_Report.md").exists());
+
+    let bad = fixture.write("bad.json", "{}");
+    let (_, _, bad_status) = run(&[
+        "export",
+        bad.to_str().unwrap(),
+        "--format",
+        "md",
+        "--output",
+        fixture.path(),
+    ]);
+    assert_eq!(bad_status, Some(3));
+}
+
+#[test]
+fn export_rejects_invalid_scan_before_writing() {
+    let fixture = Fixture::new("invalid-export");
+    let mut wrong_version = serde_json::to_value(canary_envelope()).unwrap();
+    wrong_version["schema_version"] = serde_json::json!(999);
+    let wrong_version = wrong_version.to_string();
+    for (name, content) in [
+        ("invalid.json", "not json"),
+        ("missing-fields.json", "{}"),
+        ("wrong-version.json", wrong_version.as_str()),
+    ] {
+        let input = fixture.write(name, content);
+        let (stdout, stderr, status) = run(&[
+            "export",
+            input.to_str().unwrap(),
+            "--format",
+            "md",
+            "--output",
+            fixture.path(),
+        ]);
+        assert_eq!(status, Some(3), "{stderr}");
+        assert!(!stdout.contains("Exported report"));
+        assert!(!fixture.dir.join("Audit_Report.md").exists());
+    }
+}
+
+#[test]
+fn export_rejects_unknown_format_and_missing_output_without_creating_files() {
+    let fixture = audited_project("export-errors");
+    let (scan_stdout, _, scan_status) = run(&["scan", fixture.path(), "--json"]);
+    assert_eq!(scan_status, Some(0));
+    let scan_file = fixture.write("scan.json", &scan_stdout);
+
+    let (_, unknown_stderr, unknown_status) = run(&[
+        "export",
+        scan_file.to_str().unwrap(),
+        "--format",
+        "exe",
+        "--output",
+        fixture.path(),
+    ]);
+    assert_eq!(unknown_status, Some(3));
+    assert!(unknown_stderr.contains("unsupported export format"));
+    assert!(!fixture.dir.join("Audit_Report.md").exists());
+
+    let missing = fixture.dir.join("missing-output");
+    let (_, missing_stderr, missing_status) = run(&[
+        "export",
+        scan_file.to_str().unwrap(),
+        "--format",
+        "md",
+        "--output",
+        missing.to_str().unwrap(),
+    ]);
+    assert_eq!(missing_status, Some(3));
+    assert!(missing_stderr.contains("output directory does not exist"));
+    assert!(!missing.exists());
+}
+
+#[test]
+fn scan_history_is_opt_in_and_supports_list_show_export_delete() {
+    let fixture = audited_project("scan-history");
+    let data_dir = std::env::temp_dir().join(format!(
+        "snipe-history-cli-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::SeqCst)
+    ));
+    let output = std::env::temp_dir().join(format!(
+        "snipe-history-export-{}-{}.json",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::SeqCst)
+    ));
+    let before: Vec<_> = fs::read_dir(&fixture.dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+
+    let (scan, stderr, status) = run_with_data_dir(&["scan", fixture.path(), "--json"], &data_dir);
+    assert_eq!(status, Some(0), "{stderr}");
+    assert!(!scan.contains("scan-canary-7f93a"));
+    assert!(!stderr.contains("scan-canary-7f93a"));
+    assert!(!scan.contains("history-db-canary"));
+    assert!(
+        !data_dir.exists(),
+        "scan without --save must not create history"
+    );
+
+    let (saved, stderr, status) =
+        run_with_data_dir(&["scan", fixture.path(), "--json", "--save"], &data_dir);
+    assert_eq!(status, Some(0), "{stderr}");
+    let result: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    let run_id = result["result"]["run_id"].as_str().unwrap();
+    let project_id = result["result"]["project_id"].as_str().unwrap();
+    assert!(!saved.contains("scan-canary-7f93a"));
+    assert!(!stderr.contains("scan-canary-7f93a"));
+    assert!(!saved.contains("history-db-canary"));
+    assert!(!stderr.contains("history-db-canary"));
+
+    let (listed, stderr, status) = run_with_data_dir(&["history", "list"], &data_dir);
+    assert_eq!(status, Some(0), "{stderr}");
+    assert!(listed.contains(run_id));
+    let (shown, stderr, status) = run_with_data_dir(&["history", "show", run_id], &data_dir);
+    assert_eq!(status, Some(0), "{stderr}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&shown).unwrap(),
+        result
+    );
+
+    let output_text = output.to_string_lossy().into_owned();
+    let (exported, stderr, status) = run_with_data_dir(
+        &["history", "export", run_id, "--output", &output_text],
+        &data_dir,
+    );
+    assert_eq!(status, Some(0), "{exported} {stderr}");
+    assert_eq!(fs::read_to_string(&output).unwrap(), shown);
+    assert!(!exported.contains("12345"));
+
+    let (deleted, stderr, status) =
+        run_with_data_dir(&["history", "delete", project_id], &data_dir);
+    assert_eq!(status, Some(0), "{deleted} {stderr}");
+    let (listed, stderr, status) = run_with_data_dir(&["history", "list"], &data_dir);
+    assert_eq!(status, Some(0), "{stderr}");
+    assert!(listed.is_empty());
+    let after: Vec<_> = fs::read_dir(&fixture.dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(before, after, "history must not write into source project");
+
+    let bytes = fs::read(data_dir.join("history.sqlite3")).unwrap();
+    let raw_db = String::from_utf8_lossy(&bytes);
+    assert!(!raw_db.contains("scan-canary-7f93a"));
+    assert!(!raw_db.contains("history-db-canary"));
+    let _ = fs::remove_file(output);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn canary_stays_redacted_in_history_output_database_and_report_export() {
+    let fixture = Fixture::new("history-canary");
+    let data_dir = std::env::temp_dir().join(format!(
+        "snipe-history-canary-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::SeqCst)
+    ));
+    let json_path = fixture.dir.join("history-export.json");
+    let scan_path = fixture.dir.join("scan-canary.json");
+    fs::write(&scan_path, serde_json::to_vec(&canary_envelope()).unwrap()).unwrap();
+    let scanned = snipe_code::history::read_scan(&scan_path).unwrap();
+    let scanned_json = serde_json::to_string(&scanned).unwrap();
+    assert!(!scanned_json.contains("history-canary-7f93a"));
+    assert!(scanned_json.contains("[REDACTED]"));
+
+    let mut store = snipe_code::history::HistoryStore::open_in(&data_dir).unwrap();
+    store.save(&canary_envelope()).unwrap();
+    drop(store);
+
+    let canary = "history-canary-7f93a";
+    let (shown, stderr, status) = run_with_data_dir(&["history", "show", "run-canary"], &data_dir);
+    assert_eq!(status, Some(0), "{stderr}");
+    assert!(!shown.contains(canary));
+    assert!(!stderr.contains(canary));
+
+    let json_path_text = json_path.to_string_lossy().into_owned();
+    let (stdout, stderr, status) = run_with_data_dir(
+        &[
+            "history",
+            "export",
+            "run-canary",
+            "--output",
+            &json_path_text,
+        ],
+        &data_dir,
+    );
+    assert_eq!(status, Some(0), "{stdout} {stderr}");
+    assert!(!stdout.contains(canary));
+    assert!(!stderr.contains(canary));
+    let json = fs::read_to_string(&json_path).unwrap();
+    assert!(!json.contains(canary));
+    assert!(json.contains("[REDACTED]"));
+
+    let (_, stderr, status) = run(&[
+        "export",
+        json_path_text.as_str(),
+        "--format",
+        "md",
+        "--output",
+        fixture.path(),
+    ]);
+    assert_eq!(status, Some(0), "{stderr}");
+    let report = fs::read_to_string(fixture.dir.join("Audit_Report.md")).unwrap();
+    assert!(!report.contains(canary));
+    assert!(!stderr.contains(canary));
+
+    let bytes = fs::read(data_dir.join("history.sqlite3")).unwrap();
+    assert!(!String::from_utf8_lossy(&bytes).contains(canary));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn export_preserves_existing_report() {
+    let fixture = audited_project("existing-report");
+    let (scan, _, status) = run(&["scan", fixture.path(), "--json"]);
+    assert_eq!(status, Some(0));
+    let input = fixture.write("scan.json", &scan);
+    let report = fixture.write("Audit_Report.md", "existing content");
+    let (_, _, status) = run(&[
+        "export",
+        input.to_str().unwrap(),
+        "--format",
+        "md",
+        "--output",
+        fixture.path(),
+    ]);
+    assert_eq!(status, Some(3));
+    assert_eq!(fs::read_to_string(report).unwrap(), "existing content");
+}
+
+#[test]
+fn history_rejects_option_as_id_without_creating_database() {
+    let fixture = Fixture::new("history-invalid");
+    let data_dir = fixture.dir.join("history");
+    let (_, _, status) = run_with_data_dir(&["history", "show", "--help"], &data_dir);
+    assert_eq!(status, Some(2));
+    assert!(!data_dir.exists());
+}
+
+#[test]
+fn audit_rejects_ambiguous_options_before_target_io() {
+    let fixture = Fixture::new("strict-audit");
+    let target = fixture.path();
+    for args in [
+        vec!["audit", target, "--bogus"],
+        vec!["audit", target, "--json", "--json"],
+        vec!["audit", target, "--export", "md", "--export", "pdf"],
+        vec!["audit", target, "another-path"],
+        vec!["audit", target, "--export"],
+        vec!["audit", target, "--export", ""],
+    ] {
+        let (stdout, stderr, status) = run(&args);
+        assert_eq!(status, Some(2), "{args:?}: {stderr}");
+        assert!(stdout.is_empty(), "{args:?}: {stdout}");
+        assert!(!stderr.is_empty(), "{args:?}");
+        for report in ["Audit_Report.md", "Audit_Report.pdf", "Audit_Report.docx"] {
+            assert!(!fixture.dir.join(report).exists(), "{args:?}: {report}");
+        }
+    }
+}
+
 // --- 2.3 documented in the help text ---------------------------------------
 
 #[test]
@@ -168,6 +565,21 @@ fn test_help_documents_the_structured_output_options() {
         help.contains("analyze"),
         "help must list the analyze command:\n{help}"
     );
+    assert!(
+        help.contains("--save") && help.contains("history"),
+        "{help}"
+    );
+
+    let (history_help, _, status) = run(&["help", "history"]);
+    assert_eq!(status, Some(0));
+    for expected in [
+        "list",
+        "show <run-id>",
+        "export <run-id>",
+        "delete <project-id>",
+    ] {
+        assert!(history_help.contains(expected), "{history_help}");
+    }
 
     let (analyze_help, _, status) = run(&["help", "analyze"]);
     assert_eq!(status, Some(0));
