@@ -99,6 +99,8 @@ fn canary_envelope() -> snipe_code::history::ScanEnvelope {
     ScanEnvelope {
         schema_version: SCHEMA_VERSION,
         result: ScanResult {
+            sast: Vec::new(),
+            sca: None,
             run_id: "run-canary".to_string(),
             scanned_at_utc: "2026-11-10T00:00:00Z".to_string(),
             project_id: "project-canary".to_string(),
@@ -111,6 +113,7 @@ fn canary_envelope() -> snipe_code::history::ScanEnvelope {
             }],
             exclusions: vec![],
             findings: vec![ScanFinding {
+                rule_version: None,
                 rule_id: rule_id.to_string(),
                 fingerprint_version: 1,
                 fingerprint: finding_fingerprint(RULE_VERSION, rule_id, file, 4, severity),

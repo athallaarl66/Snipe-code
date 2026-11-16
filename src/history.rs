@@ -36,6 +36,10 @@ pub struct ScanResult {
     pub low: usize,
     pub highest_severity: Option<String>,
     pub policy_failed: bool,
+    #[serde(default)]
+    pub sast: Vec<crate::sast::SastReport>,
+    #[serde(default)]
+    pub sca: Option<crate::sca::Report>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +51,8 @@ pub struct RuleStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScanFinding {
     pub rule_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_version: Option<String>,
     pub fingerprint_version: u32,
     pub fingerprint: String,
     pub severity: String,
@@ -69,9 +75,26 @@ impl ScanEnvelope {
         let findings = audit
             .findings
             .into_iter()
-            .map(|finding| scan_finding(&root, finding))
+            .map(|finding| {
+                let identity = audit
+                    .sast
+                    .iter()
+                    .flat_map(|report| &report.findings)
+                    .find(|candidate| {
+                        finding.category == "Static Analysis"
+                            && candidate.file == finding.file
+                            && candidate.line == finding.line
+                            && finding.description
+                                == format!(
+                                    "Candidate static analysis finding: {}",
+                                    candidate.rule_id
+                                )
+                    })
+                    .map(|candidate| (candidate.rule_id.as_str(), candidate.rule_version.as_str()));
+                scan_finding(&root, finding, identity)
+            })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self {
+        let mut envelope = Self {
             schema_version: SCHEMA_VERSION,
             result: ScanResult {
                 run_id: Uuid::new_v4().to_string(),
@@ -92,13 +115,20 @@ impl ScanEnvelope {
                 low: audit.low,
                 highest_severity: audit.highest_severity,
                 policy_failed: audit.policy_failed,
+                sast: audit.sast,
+                sca: audit.sca,
             },
-        })
+        };
+        redact_envelope(&mut envelope);
+        validate_envelope_complete(&envelope)?;
+        Ok(envelope)
     }
 
     pub fn to_audit_result(&self) -> AuditResult {
         AuditResult {
             exported_files: Vec::new(),
+            sast: self.result.sast.clone(),
+            sca: self.result.sca.clone(),
             findings: self
                 .result
                 .findings
@@ -129,7 +159,11 @@ impl ScanEnvelope {
     }
 }
 
-fn scan_finding(root: &Path, finding: Finding) -> Result<ScanFinding, String> {
+fn scan_finding(
+    root: &Path,
+    finding: Finding,
+    identity: Option<(&str, &str)>,
+) -> Result<ScanFinding, String> {
     let source_path = Path::new(&finding.file);
     let relative = if source_path.is_absolute() {
         source_path
@@ -161,8 +195,12 @@ fn scan_finding(root: &Path, finding: Finding) -> Result<ScanFinding, String> {
             }
         }
     }
+    let rule_version = identity.map(|(id, version)| {
+        rule_id = id.to_string();
+        version.to_string()
+    });
     let fingerprint = finding_fingerprint(
-        RULE_VERSION,
+        rule_version.as_deref().unwrap_or(RULE_VERSION),
         &rule_id,
         &file,
         finding.line,
@@ -171,6 +209,7 @@ fn scan_finding(root: &Path, finding: Finding) -> Result<ScanFinding, String> {
     let description = redact_description(&finding.description);
     Ok(ScanFinding {
         rule_id,
+        rule_version,
         fingerprint_version: FINGERPRINT_VERSION,
         fingerprint,
         severity: finding.severity,
@@ -213,11 +252,28 @@ fn redact_description(description: &str) -> String {
         "Missing .gitignore file",
         "Heuristic unsafe query or secret pattern in supported stack source",
     ];
-    if SAFE.contains(&description) {
+    let static_rule = description.strip_prefix("Candidate static analysis finding: ");
+    if SAFE.contains(&description) || static_rule.is_some_and(safe_static_rule) {
         description.to_string()
     } else {
         "[REDACTED]".to_string()
     }
+}
+
+fn valid_rule_version(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= 64
+        && version
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b'+'))
+}
+
+fn safe_static_rule(rule: &str) -> bool {
+    let catalog: serde_json::Value =
+        serde_json::from_str(crate::sast::RULES).expect("embedded rules");
+    catalog["rules"]
+        .as_array()
+        .is_some_and(|rules| rules.iter().any(|entry| entry["id"] == rule))
 }
 
 fn redact_scope(root: &Path, scope: &str) -> String {
@@ -291,7 +347,7 @@ fn serialize_envelope(envelope: &ScanEnvelope) -> Result<String, String> {
 }
 
 fn deserialize_envelope(json: &str) -> Result<ScanEnvelope, String> {
-    serde_json::from_str(json).map_err(|error| error.to_string())
+    serde_json::from_str(json).map_err(|_| "invalid stored scan result".to_string())
 }
 
 fn verify_schema_version(value: &serde_json::Value) -> Result<(), String> {
@@ -362,6 +418,15 @@ fn validate_finding(finding: &ScanFinding) -> Result<(), String> {
     if finding.fingerprint.is_empty() || finding.rule_id.is_empty() {
         return Err("finding is missing rule identity or fingerprint".to_string());
     }
+    if finding.rule_version.is_some()
+        && (!safe_static_rule(&finding.rule_id)
+            || !finding
+                .rule_version
+                .as_deref()
+                .is_some_and(valid_rule_version))
+    {
+        return Err("invalid versioned finding identity".to_string());
+    }
     if !matches!(finding.severity.as_str(), "HIGH" | "MEDIUM" | "LOW") {
         return Err("finding contains invalid severity".to_string());
     }
@@ -374,7 +439,10 @@ fn validate_all_findings(envelope: &ScanEnvelope) -> Result<(), String> {
         if finding.fingerprint_version == FINGERPRINT_VERSION
             && finding.fingerprint
                 != finding_fingerprint(
-                    &envelope.result.rule_version,
+                    finding
+                        .rule_version
+                        .as_deref()
+                        .unwrap_or(&envelope.result.rule_version),
                     &finding.rule_id,
                     &finding.file,
                     finding.line,
@@ -402,6 +470,42 @@ fn validate_identity(envelope: &ScanEnvelope) -> Result<(), String> {
 }
 
 fn validate_statuses(envelope: &ScanEnvelope) -> Result<(), String> {
+    if let Some(report) = &envelope.result.sca {
+        crate::sca::validate_report(report)?;
+    }
+    for report in &envelope.result.sast {
+        if !report.file.is_empty() {
+            validate_scan_path(&report.file)?;
+        }
+        if !matches!(report.language.as_str(), "rust" | "unsupported")
+            || !valid_rule_version(&report.rule_pack_version)
+        {
+            return Err("invalid static analysis report identity".to_string());
+        }
+        for finding in &report.findings {
+            validate_scan_path(&finding.file)?;
+            if !safe_static_rule(&finding.rule_id)
+                || !valid_rule_version(&finding.rule_version)
+                || !matches!(finding.severity.as_str(), "HIGH" | "MEDIUM" | "LOW")
+                || !matches!(finding.confidence.as_str(), "high" | "medium" | "low")
+                || !finding.candidate
+                || finding.evidence.iter().any(|evidence| {
+                    !matches!(
+                        evidence.kind.as_str(),
+                        "source"
+                            | "sink"
+                            | "shell-argument"
+                            | "sql-format"
+                            | "query-method-type-unverified"
+                            | "html-response"
+                            | "taint-source"
+                    )
+                })
+            {
+                return Err("invalid static analysis finding".to_string());
+            }
+        }
+    }
     if envelope.result.evaluated_rule_groups.iter().any(|status| {
         !matches!(
             status.status.as_str(),
@@ -457,6 +561,19 @@ fn redact_scope_path(scope: &str) -> String {
 }
 
 fn redact_envelope(envelope: &mut ScanEnvelope) {
+    if let Some(report) = &mut envelope.result.sca {
+        report.coverage = crate::sca::COVERAGE.into();
+        report.issues = report
+            .issues
+            .iter()
+            .map(|_| "dependency analysis incomplete".into())
+            .collect();
+    }
+    for report in &mut envelope.result.sast {
+        if report.error.is_some() {
+            report.error = Some("static analysis incomplete".to_string());
+        }
+    }
     envelope.result.detected_scopes = envelope
         .result
         .detected_scopes
@@ -550,16 +667,16 @@ pub fn read_scan(input: &Path) -> Result<ScanEnvelope, String> {
     let mut result = if value.get("schema_version").is_some() {
         if value["schema_version"].as_u64() == Some(1) {
             let legacy: AuditResult = serde_json::from_value(value["result"].clone())
-                .map_err(|error| format!("invalid legacy scan result: {error}"))?;
+                .map_err(|_| "invalid legacy scan result".to_string())?;
             legacy_envelope(legacy)
         } else {
             verify_schema_version(&value)?;
             serde_json::from_value::<ScanEnvelope>(value)
-                .map_err(|error| format!("invalid scan result: {error}"))?
+                .map_err(|_| "invalid scan result".to_string())?
         }
     } else {
-        let legacy: AuditResult = serde_json::from_value(value)
-            .map_err(|error| format!("invalid scan result: {error}"))?;
+        let legacy: AuditResult =
+            serde_json::from_value(value).map_err(|_| "invalid scan result".to_string())?;
         legacy_envelope(legacy)
     };
     redact_envelope(&mut result);
@@ -582,6 +699,7 @@ fn legacy_envelope(audit: AuditResult) -> ScanEnvelope {
             );
             ScanFinding {
                 rule_id,
+                rule_version: None,
                 fingerprint_version: 0,
                 fingerprint,
                 severity: finding.severity,
@@ -613,6 +731,8 @@ fn legacy_envelope(audit: AuditResult) -> ScanEnvelope {
             low: audit.low,
             highest_severity: audit.highest_severity,
             policy_failed: audit.policy_failed,
+            sast: audit.sast,
+            sca: audit.sca,
         },
     }
 }
@@ -758,6 +878,8 @@ mod tests {
         ScanEnvelope {
             schema_version: SCHEMA_VERSION,
             result: ScanResult {
+                sast: Vec::new(),
+                sca: None,
                 run_id: run_id.to_string(),
                 scanned_at_utc: "2026-01-01T00:00:00Z".to_string(),
                 project_id: project_id.to_string(),
@@ -781,6 +903,8 @@ mod tests {
 
     fn fixture_audit(root: &Path, description: &str) -> AuditResult {
         AuditResult {
+            sast: Vec::new(),
+            sca: None,
             exported_files: vec![],
             findings: vec![Finding {
                 severity: "HIGH".to_string(),

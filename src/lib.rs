@@ -9,6 +9,8 @@ pub mod docker;
 pub mod generator;
 pub mod git;
 pub mod history;
+pub mod sast;
+pub mod sca;
 pub mod stack;
 pub mod template;
 pub mod verify;

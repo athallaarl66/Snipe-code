@@ -709,10 +709,12 @@ dependencies = [
  "docx-rs",
  "include_dir",
  "printpdf",
+ "proc-macro2",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2",
+ "syn 2.0.119",
  "uuid",
 ]
 

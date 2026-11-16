@@ -52,11 +52,28 @@ fn is_within_root(root: &Path, candidate: &Path) -> bool {
     fs::canonicalize(candidate).is_ok_and(|resolved| resolved.starts_with(root))
 }
 
-fn read_within_root(root: &Path, file: &Path) -> Option<String> {
+pub(crate) fn read_within_root(root: &Path, file: &Path) -> Option<String> {
     if !is_within_root(root, file) {
         return None;
     }
     fs::read_to_string(file).ok()
+}
+
+pub(crate) fn read_bounded_within_root(root: &Path, file: &Path, max_bytes: u64) -> Option<String> {
+    use std::io::Read;
+    if !is_within_root(root, file) || fs::symlink_metadata(file).ok()?.file_type().is_symlink() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    fs::File::open(file)
+        .ok()?
+        .take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > max_bytes {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
 }
 
 #[cfg(not(windows))]
@@ -113,6 +130,10 @@ pub struct AuditResult {
     pub detected_scopes: Vec<String>,
     pub evaluated_rule_groups: Vec<String>,
     pub exclusions: Vec<String>,
+    #[serde(default)]
+    pub sast: Vec<crate::sast::SastReport>,
+    #[serde(default)]
+    pub sca: Option<crate::sca::Report>,
 }
 
 pub fn run_audit(project_path: &str, export_format: &str) -> Result<Vec<String>, String> {
@@ -132,6 +153,18 @@ pub fn run_audit_scan(project_path: &str) -> Result<AuditResult, String> {
     check_xss_risks(&root, &mut findings);
     check_security_configs(&root, &mut findings);
     check_supported_stack_sources(&root, &mut findings);
+    let sast = scan_static_sources(&root);
+    for report in &sast {
+        for finding in &report.findings {
+            findings.push(Finding {
+                severity: finding.severity.clone(),
+                category: "Static Analysis".to_string(),
+                description: format!("Candidate static analysis finding: {}", finding.rule_id),
+                file: finding.file.clone(),
+                line: finding.line,
+            });
+        }
+    }
     let detected_scopes = detect_scopes(&root);
     let high = findings.iter().filter(|f| f.severity == "HIGH").count();
     let medium = findings.iter().filter(|f| f.severity == "MEDIUM").count();
@@ -147,6 +180,8 @@ pub fn run_audit_scan(project_path: &str) -> Result<AuditResult, String> {
     };
     Ok(AuditResult {
         exported_files: Vec::new(),
+        sast,
+        sca: Some(crate::sca::analyze(&root, None, crate::sca::now())),
         findings,
         high,
         medium,
@@ -163,6 +198,77 @@ pub fn run_audit_scan(project_path: &str) -> Result<AuditResult, String> {
                 .to_string(),
         ],
     })
+}
+
+fn scan_static_sources(root: &Path) -> Vec<crate::sast::SastReport> {
+    use crate::sast::{PACK_VERSION, SastReport, SastStatus, analyze_rust_source};
+    let mut files = walk_files(root);
+    files.sort();
+    let mut reports = Vec::new();
+    for file in files {
+        let relative = file
+            .strip_prefix(root)
+            .expect("walk stays in root")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let extension = file
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if extension == "rs" {
+            let relative = file
+                .strip_prefix(root)
+                .expect("walk stays in root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            reports.push(match read_bounded_within_root(root, &file, 262_144) {
+                Some(source) => analyze_rust_source(&relative, &source),
+                None => SastReport {
+                    file: relative.clone(),
+                    status: SastStatus::Unknown,
+                    language: "rust".to_string(),
+                    rule_pack_version: PACK_VERSION.to_string(),
+                    findings: Vec::new(),
+                    error: Some("source unavailable or input budget exceeded".to_string()),
+                },
+            });
+        } else if matches!(
+            extension,
+            "js" | "jsx"
+                | "ts"
+                | "tsx"
+                | "py"
+                | "go"
+                | "java"
+                | "cs"
+                | "php"
+                | "c"
+                | "cpp"
+                | "rb"
+                | "swift"
+                | "kt"
+        ) {
+            reports.push(SastReport {
+                file: relative,
+                status: SastStatus::Unknown,
+                language: "unsupported".to_string(),
+                rule_pack_version: PACK_VERSION.to_string(),
+                findings: Vec::new(),
+                error: None,
+            });
+        }
+    }
+    if reports.is_empty() {
+        reports.push(SastReport {
+            file: String::new(),
+            status: SastStatus::NotApplicable,
+            language: "rust".to_string(),
+            rule_pack_version: PACK_VERSION.to_string(),
+            findings: Vec::new(),
+            error: None,
+        });
+    }
+    reports
 }
 
 pub fn run_audit_report(project_path: &str, export_format: &str) -> Result<AuditResult, String> {

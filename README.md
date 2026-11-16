@@ -232,8 +232,49 @@ snipe-code export scan.json --format md,pdf --output ./reports
 snipe-code audit . --export md --json     # legacy; writes report file and JSON
 ```
 
-`scan` performs read-only heuristic checks and emits JSON envelope with
-`schema_version: 2`. It does not create history unless called with `--save`.
+`scan` performs read-only heuristic checks and Rust candidate analysis, and emits
+JSON envelope with `schema_version: 2`. It does not create history unless called
+with `--save`.
+
+Rust rules cover straight-line local bindings from `std::env::var`/`args` to
+`sh`/`bash -c` command chains, SQL methods (`execute`, `query`, `query_row`,
+`prepare`), and `axum::response::Html`/`warp::reply::html`. SQL receiver types are
+not resolved. Bound parameters remain separate from SQL text; `ammonia::clean`
+and `html_escape::encode_safe` protect the modeled HTML output, not shell or SQL.
+Findings carry rule ID/version, confidence, candidate label and line evidence,
+without source text. The paired corpus is `tests/fixtures/sast/rust`.
+
+The adapter does not resolve aliases, types, cross-function flows or macro
+expansion. Unsupported control flow/transforms and parser input budgets report
+`unknown`; invalid Rust reports `error`. Other source languages remain
+`unknown`, not clean. Parsing is bounded by source size, delimiter depth and an
+operator budget, not a wall-clock timeout. Legacy heuristic identities stay
+separate from Rust rule versions.
+
+SCA reads the scan root's `package-lock.json` version 3, including pinned direct
+and transitive npm packages. Other ecosystems, workspace/link/git dependencies,
+aliases, missing lockfiles and incomplete graphs produce `unknown`. Results live
+in `result.sca` with package/version, installed path, advisory ID, severity and
+snapshot provenance. They do not change legacy heuristic severity totals.
+
+```bash
+snipe-code advisory refresh ./app --cache ./advisories --yes
+snipe-code scan ./app --snapshot ./advisories --json --save
+```
+
+Refresh requires `curl` with HTTPS and sends package names and exact versions to
+`https://api.osv.dev/v1/query`, not source or credentials. It accepts GHSA records
+from GitHub Advisory Database (CC-BY-4.0); no live advisory data ships with the
+binary. Snapshots contain format version, retrieval/expiry timestamps and SHA-256.
+They expire after seven days. SHA-256 detects corruption, not authenticity;
+refresh trusts HTTPS. Invalid updates retain the previous active snapshot.
+
+Scan performs no refresh or network request. Without `--snapshot`, advisory
+status is `unknown`. The option accepts a snapshot file or cache directory.
+Missing, malformed or corrupt snapshots stay `unknown`; expired snapshots stay
+`stale`, not clean. A clean package result covers only its cached version query,
+not all vulnerabilities or ecosystems. Tests use synthetic responses, not live OSV.
+
 `audit --json` keeps its legacy `AuditResult` format. `scan --json` emits versioned
 envelope. `export` reads either format and writes selected `md`, `pdf`, or `docx` reports
 into an existing directory. It never rescans source.

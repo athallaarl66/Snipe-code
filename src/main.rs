@@ -22,6 +22,7 @@ fn main() {
         Some("analyze") => run_analyze_cmd(&args),
         Some("audit") => run_audit_cmd(&args),
         Some("scan") => run_scan_cmd(&args),
+        Some("advisory") => run_advisory_cmd(&args),
         Some("export") => run_export_cmd(&args),
         Some("history") => run_history_cmd(&args),
         Some("verify") => run_verify_cmd(&args),
@@ -105,8 +106,21 @@ fn run_scan_cmd(args: &[String]) {
     let mut path_seen = false;
     let mut json = false;
     let mut save = false;
-    for token in &rest {
+    let mut snapshot = None;
+    let mut tokens = rest.iter();
+    while let Some(token) = tokens.next() {
         match token.as_str() {
+            "--snapshot" => {
+                if snapshot.is_some() {
+                    usage_error("duplicate --snapshot");
+                }
+                snapshot = Some(
+                    tokens
+                        .next()
+                        .filter(|s| !s.starts_with('-'))
+                        .unwrap_or_else(|| usage_error("missing --snapshot path")),
+                );
+            }
             "--json" if !json => json = true,
             "--json" => usage_error("duplicate --json"),
             "--save" if !save => save = true,
@@ -119,10 +133,17 @@ fn run_scan_cmd(args: &[String]) {
             _ => usage_error("multiple scan paths"),
         }
     }
-    let result = audit::run_audit_scan(path).unwrap_or_else(|error| {
+    let mut result = audit::run_audit_scan(path).unwrap_or_else(|error| {
         eprintln!("scan: {error}");
         std::process::exit(3);
     });
+    if let Some(snapshot) = snapshot {
+        result.sca = Some(snipe_code::sca::analyze(
+            Path::new(path),
+            Some(Path::new(snapshot)),
+            snipe_code::sca::now(),
+        ));
+    }
     let envelope = snipe_code::history::ScanEnvelope::from_audit(Path::new(path), result)
         .unwrap_or_else(|error| {
             eprintln!("scan: {error}");
@@ -154,7 +175,44 @@ fn run_scan_cmd(args: &[String]) {
             "Audit scan: {} HIGH, {} MEDIUM, {} LOW",
             envelope.result.high, envelope.result.medium, envelope.result.low
         );
+        if let Some(report) = &envelope.result.sca {
+            println!(
+                "Dependency analysis: {} ({})",
+                report.status, report.coverage
+            );
+        }
     }
+}
+
+fn run_advisory_cmd(args: &[String]) {
+    if args.len() == 3 && matches!(args[2].as_str(), "--help" | "-h") {
+        println!("{ADVISORY_HELP}");
+        return;
+    }
+    if !matches!(args.len(), 6 | 7)
+        || args[2] != "refresh"
+        || args[4] != "--cache"
+        || args[3].starts_with('-')
+        || args[5].starts_with('-')
+        || (args.len() == 7 && args[6] != "--yes")
+    {
+        usage_error("usage: snipe-code advisory refresh <PATH> --cache <DIR> --yes");
+    }
+    if args.len() != 7 {
+        usage_error("refresh requires explicit --yes consent");
+    }
+    let snapshot = snipe_code::sca::refresh(
+        Path::new(&args[3]),
+        Path::new(&args[5]),
+        true,
+        snipe_code::sca::fetch_osv,
+        snipe_code::sca::now(),
+    )
+    .unwrap_or_else(|error| {
+        eprintln!("advisory: {error}");
+        std::process::exit(3);
+    });
+    println!("Activated snapshot {}", snapshot.display());
 }
 
 fn run_history_cmd(args: &[String]) {
@@ -457,8 +515,9 @@ fn print_command_help(cmd: &str) {
         "analyze" => println!("{}", ANALYZE_HELP),
         "audit" => println!("{}", AUDIT_HELP),
         "scan" => println!(
-            "snipe-code scan [PATH] [--json] [--save] — read-only audit; --save stores local history"
+            "snipe-code scan [PATH] [--json] [--save] [--snapshot <FILE|DIR>] - offline audit; --save stores local history"
         ),
+        "advisory" => println!("{ADVISORY_HELP}"),
         "export" => println!("snipe-code export <scan.json> --format <md,pdf,docx> --output <DIR>"),
         "history" => println!(
             "snipe-code history list | show <run-id> | export <run-id> --output <FILE> | delete <project-id>"
@@ -485,6 +544,7 @@ COMMANDS
                dan dependency yang dideklarasikan (read-only, offline)
     audit      Legacy security audit dan export report
     scan       Read-only audit; JSON versioned dengan --json; --save simpan history lokal
+    advisory   Refresh snapshot OSV eksplisit; perlu --yes dan curl HTTPS
     export     Export hasil scan ke direktori eksplisit
     history    Simpan, lihat, export, dan hapus riwayat scan lokal
     verify     Periksa gate kualitas proyek yang sudah ada
@@ -632,6 +692,13 @@ CONTOH
     snipe-code new --template blog --frontend nextjs --backend none \
                    --database none --name site
 "#;
+
+const ADVISORY_HELP: &str = "snipe-code advisory refresh <PATH> --cache <DIR> --yes
+Sends npm package names and pinned versions to https://api.osv.dev/v1/query.
+Requires curl with HTTPS. No source or credentials sent. GHSA records only,
+GitHub Advisory Database, CC-BY-4.0. Seven-day snapshot freshness; SHA-256
+checks corruption, not authenticity. Scan stays offline; select cache or file
+with scan --snapshot <FILE|DIR>. Invalid refresh retains previous snapshot.";
 
 const AUDIT_HELP: &str = r#"snipe-code audit — Security audit folder proyek
 

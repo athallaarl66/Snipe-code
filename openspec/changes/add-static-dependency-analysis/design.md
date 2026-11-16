@@ -19,6 +19,14 @@ Lihat proposal dan delta `static-analysis` serta `dependency-analysis`. `audit` 
 - Simpan snapshot atomik dengan source, format/version, checksum/signature bila tersedia, fetch time dan expiry policy. Periksa integritas sebelum aktivasi; snapshot absent/stale/schema mismatch = unknown.
 - Uji positive/negative fixtures per rule dan ecosystem: safe parameterized query, escaped/sanitized sink, fake secret, vulnerable dependency version, unaffected version, missing/invalid lockfile, stale snapshot dan offline no-egress.
 
+## Approved implementation slice
+
+- User selected Rust syntax-only intrafunction analysis, corpus `tests/fixtures/sast/rust`, paired shell/SQL/HTML fixtures. Rule metadata lives in `src/sast/rules.json`; source and sink evidence contains line numbers, not source text. Method/type resolution, aliases, cross-function flow, macro expansion and control-flow assignment are outside support. Size/depth budgets yield unknown; parse errors yield error. This is not a wall-clock timeout or whole-program guarantee.
+- User selected npm `package-lock.json` lockfileVersion 3. Exact direct/transitive installed package versions are the only advisory query inputs; missing, invalid or unsupported inputs remain unknown. No npm install or project execution.
+- User approved OSV per-package/version query snapshots with GHSA-only records, GitHub Advisory Database attribution and CC-BY-4.0 notice. No advisory bundle distributed. OSV upstream sources other than GHSA remain unknown. Sources: https://google.github.io/osv.dev/api/ and https://github.com/github/advisory-database/blob/main/LICENSE.md . This scoped query cache is not a complete ecosystem advisory database.
+- Snapshot format version, source/provenance, retrieval time, seven-day maximum age and SHA-256 payload digest are required. Missing/invalid/future timestamps, malformed/integrity-failed/absent snapshots yield unknown; expired snapshots remain stale and never clean. SHA-256 checks corruption, not authenticity or a signature. HTTPS authenticates the selected OSV endpoint under host TLS trust.
+- Refresh is a separate explicit operation with `--yes` consent before any request. Only package names and exact versions go to `https://api.osv.dev`; no source or credentials. Validate all responses before activating a snapshot through atomic replacement; rejected refresh sends zero requests and invalid updates retain the active snapshot. Tests use fake transport; no live refresh is authorized by selecting this implementation policy.
+
 ## CR alignment
 
 See `../../CR-ALIGNMENT.md` for requirement-to-task acceptance mapping and dependency boundaries. Current checkboxes are evidence claims, not completion inferred from this planning update.

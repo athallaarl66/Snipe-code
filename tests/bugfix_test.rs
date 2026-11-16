@@ -334,6 +334,31 @@ fn test_audit_ignores_keyword_only_lines_but_keeps_literal_risks() {
 }
 
 #[test]
+fn rust_sast_fixtures_distinguish_tainted_and_literal_shell_commands() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let tainted = fs::read_to_string(root.join("tests/fixtures/sast/rust/shell-tainted.rs"))
+        .expect("tainted shell fixture");
+    let safe = fs::read_to_string(root.join("tests/fixtures/sast/rust/shell-literal-safe.rs"))
+        .expect("safe shell fixture");
+
+    assert!(tainted.contains("std::env::var"));
+    assert!(tainted.contains("format!(\"echo {input}\")"));
+    assert!(tainted.contains("Command::new(\"sh\")"));
+    assert!(safe.contains(".arg(\"echo fixed\")"));
+    assert!(!safe.contains("std::env::var"));
+
+    let project = temp_project("rust-sast-contract");
+    fs::create_dir_all(project.join("src")).unwrap();
+    fs::write(project.join("src/main.rs"), &tainted).unwrap();
+    let report = audit::run_audit_scan(&project.to_string_lossy()).unwrap();
+    assert!(report.findings.iter().any(|finding| {
+        finding.category == "Static Analysis"
+            && finding.description.contains("sast-rust-shell-tainted")
+    }));
+    let _ = fs::remove_dir_all(project);
+}
+
+#[test]
 fn test_audit_validates_formats_and_reports_scopes() {
     let dir = temp_project("audit-contract");
     fs::create_dir_all(dir.join("frontend/src")).unwrap();
