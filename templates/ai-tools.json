@@ -30,6 +30,13 @@
           "description": "Use when editing code in this project. Security rules and workflow."
         },
         {
+          "path": ".claude/skills/{name}/SKILL.md",
+          "format": "skill",
+          "template": "testing",
+          "name": "snipe-qa-planning",
+          "description": "Use for read-only QA planning from selected requirements; no target execution."
+        },
+        {
           "path": ".claude/commands/{name}.md",
           "format": "command",
           "template": "command",
@@ -69,6 +76,13 @@
           "description": "Use when editing code in this project. Security rules and workflow."
         },
         {
+          "path": ".opencode/skills/{name}/SKILL.md",
+          "format": "skill",
+          "template": "testing",
+          "name": "snipe-qa-planning",
+          "description": "Use for read-only QA planning from selected requirements; no target execution."
+        },
+        {
           "path": ".opencode/commands/{name}.md",
           "format": "command",
           "template": "command",
@@ -99,6 +113,13 @@
           "template": "skill",
           "name": "snipe-code",
           "description": "Use when editing code in this project. Security rules and workflow."
+        },
+        {
+          "path": ".agents/skills/{name}.md",
+          "format": "skill",
+          "template": "testing",
+          "name": "snipe-qa-planning",
+          "description": "Use for read-only QA planning from selected requirements; no target execution."
         },
         {
           "path": ".agents/workflows/{name}.md",
@@ -144,6 +165,13 @@
           "template": "skill",
           "name": "snipe-code",
           "description": "Use when editing code in this project. Security rules and workflow."
+        },
+        {
+          "path": ".hermes/skills/{name}/SKILL.md",
+          "format": "skill",
+          "template": "testing",
+          "name": "snipe-qa-planning",
+          "description": "Use for read-only QA planning from selected requirements; no target execution."
         }
       ]
     },

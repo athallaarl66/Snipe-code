@@ -365,7 +365,7 @@ fn quality_cli_missing_baseline_preserves_reason_in_text_and_json() {
 
 #[test]
 fn documented_quality_config_runs_with_imported_not_computed_coverage() {
-    let docs = include_str!("../docs/features/quality-gates.md");
+    let docs = include_str!("../docs/features/quality-gates.md").replace("\r\n", "\n");
     let example = docs
         .split_once("```json\n")
         .unwrap()

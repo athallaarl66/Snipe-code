@@ -23,6 +23,7 @@ fn main() {
         Some("audit") => run_audit_cmd(&args),
         Some("scan") => run_scan_cmd(&args),
         Some("quality") => run_quality_cmd(&args),
+        Some("qa") => run_qa_cmd(&args),
         Some("advisory") => run_advisory_cmd(&args),
         Some("export") => run_export_cmd(&args),
         Some("history") => run_history_cmd(&args),
@@ -99,6 +100,75 @@ fn run_new_cmd(args: &[String]) {
 fn usage_error(message: &str) -> ! {
     eprintln!("{}", message);
     std::process::exit(2);
+}
+
+fn run_qa_cmd(args: &[String]) {
+    let help = "snipe-code qa plan <PROJECT> --input <REQUIREMENTS.json> [--export <FILE>] [--adapter postman-cli]\nPaths are relative to the current directory. Input must be inside PROJECT. Example JSON:\n{\"version\":1,\"requirements\":[{\"id\":\"REQ-1\",\"scenarios\":[{\"id\":\"ok\",\"category\":\"positive\",\"objective\":\"Allow\",\"precondition\":\"Ready\",\"input\":\"Valid\",\"expected_result\":\"Accepted\"},{\"id\":\"bad\",\"category\":\"negative\",\"objective\":\"Reject\",\"precondition\":\"Ready\",\"input\":\"Invalid\",\"expected_result\":\"Denied\"}]}]}\nNo tools or tests run. Export must be a new file outside the project.\n--adapter postman-cli adds a statically reviewed Collection v2.1 under script.collection; target CLI 1.90.0, runtime unverified. Each scenario needs request: {method, url, headers, body, expected_status}. Only synthetic non-secret fixtures; credential headers are rejected. No runner or setup command is available.";
+    if matches!(args.get(2).map(String::as_str), Some("--help" | "-h")) && args.len() == 3 {
+        println!("{help}");
+        return;
+    }
+    if args.get(2).map(String::as_str) != Some("plan") {
+        usage_error(help);
+    }
+    if args.len() == 4 && matches!(args[3].as_str(), "--help" | "-h") {
+        println!("{help}");
+        return;
+    }
+    let mut project = None;
+    let mut input = None;
+    let mut export = None;
+    let mut adapter = None;
+    let mut i = 3;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--input" | "--export" | "--adapter" => {
+                let option = args[i].as_str();
+                i += 1;
+                let value = args
+                    .get(i)
+                    .filter(|s| !s.starts_with('-'))
+                    .unwrap_or_else(|| usage_error(help));
+                let slot = match option {
+                    "--input" => &mut input,
+                    "--export" => &mut export,
+                    _ => &mut adapter,
+                };
+                if slot.replace(value.as_str()).is_some() {
+                    usage_error(help);
+                }
+            }
+            option if option.starts_with('-') => usage_error(help),
+            path if project.is_none() => project = Some(path),
+            _ => usage_error(help),
+        }
+        i += 1;
+    }
+    if adapter.is_some() && adapter != Some("postman-cli") {
+        usage_error("unsupported QA adapter; only postman-cli draft generation is available");
+    }
+    let project = Path::new(project.unwrap_or_else(|| usage_error(help)));
+    let input = Path::new(input.unwrap_or_else(|| usage_error(help)));
+    let mut plan = snipe_code::qa::plan(project, input).unwrap_or_else(|error| {
+        eprintln!("qa plan: {error}");
+        std::process::exit(3);
+    });
+    if adapter.is_some() {
+        snipe_code::qa::postman_draft(&mut plan).unwrap_or_else(|error| {
+            eprintln!("qa plan: {error}");
+            std::process::exit(3);
+        });
+    };
+    if let Some(destination) = export {
+        snipe_code::qa::export(project, Path::new(destination), &plan).unwrap_or_else(|error| {
+            eprintln!("qa plan: {error}");
+            std::process::exit(3);
+        });
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&plan).expect("serialize plan")
+    );
 }
 
 fn run_scan_cmd(args: &[String]) {
@@ -628,6 +698,7 @@ fn print_command_help(cmd: &str) {
         ),
         "advisory" => println!("{ADVISORY_HELP}"),
         "quality" => println!("{QUALITY_HELP}"),
+        "qa" => run_qa_cmd(&[String::new(), "qa".into(), "--help".into()]),
         "export" => println!("snipe-code export <scan.json> --format <md,pdf,docx> --output <DIR>"),
         "history" => println!(
             "snipe-code history list | show <run-id> | export <run-id> --output <FILE> | delete <project-id>"
@@ -656,6 +727,7 @@ COMMANDS
     scan       Read-only audit; JSON versioned dengan --json; --save simpan history lokal
     advisory   Refresh snapshot OSV eksplisit; perlu --yes dan curl HTTPS
     quality    Read-only Rust metrics, imported LCOV and baseline quality policy
+    qa         Plan reviewable test cases from structured requirements
     export     Export hasil scan ke direktori eksplisit
     history    Simpan, lihat, export, dan hapus riwayat scan lokal
     verify     Periksa gate kualitas proyek yang sudah ada
