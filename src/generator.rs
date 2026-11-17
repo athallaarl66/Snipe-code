@@ -14,12 +14,20 @@ pub struct GenerateConfig {
     pub ai_tools: Vec<String>,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct AiArtifactType {
+    pub tool: String,
+    pub path: String,
+    pub kind: String,
+}
+
 #[derive(Debug)]
 pub struct GenerateResult {
     pub folders: Vec<String>,
     pub files: Vec<String>,
     pub ai_tools: Vec<String>,
     pub ai_artifacts: Vec<String>,
+    pub ai_artifact_types: Vec<AiArtifactType>,
     pub ai_overlaps: Vec<String>,
 }
 
@@ -159,6 +167,7 @@ fn write_all(root: &Path, config: &GenerateConfig) -> Result<GenerateResult, Str
         files: Vec::new(),
         ai_tools: Vec::new(),
         ai_artifacts: Vec::new(),
+        ai_artifact_types: Vec::new(),
         ai_overlaps: Vec::new(),
     };
 
@@ -253,6 +262,11 @@ fn write_all(root: &Path, config: &GenerateConfig) -> Result<GenerateResult, Str
     result.files.push(".ai-workspace/rules.md".to_string());
     result.files.push(".ai-workspace/rules.mdc".to_string());
     result.ai_artifacts = ai.artifacts.clone();
+    result.ai_artifact_types = ai
+        .artifact_types
+        .into_iter()
+        .map(|(tool, path, kind)| AiArtifactType { tool, path, kind })
+        .collect();
     result.files.extend(ai.artifacts);
     result.ai_tools = ai.tools;
     result.ai_overlaps = ai.overlaps;

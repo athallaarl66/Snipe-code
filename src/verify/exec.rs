@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::process::Stdio;
 
 /// A command and the directory it runs in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +53,30 @@ impl RunError {
 /// Runs one command, printing it first so the run can be repeated by hand.
 pub fn run(spec: &CommandSpec, label: &str) -> Result<(), RunError> {
     println!("  $ {}  (in {})", spec.display(), label);
+    run_command(spec)
+}
+
+/// Runs a gate while keeping its output off stdout, which is reserved for
+/// machine-readable CLI results.
+pub fn run_stderr(spec: &CommandSpec, label: &str) -> Result<(), RunError> {
+    eprintln!("  $ {}  (in {})", spec.display(), label);
+    match command(spec)
+        .stdout(Stdio::from(std::io::stderr()))
+        .status()
+    {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(RunError::Failed(format!(
+            "{} {:?} exited with {status}",
+            spec.program, spec.args
+        ))),
+        Err(error) => Err(RunError::Unavailable(format!(
+            "{} unavailable: {error}",
+            spec.program
+        ))),
+    }
+}
+
+fn run_command(spec: &CommandSpec) -> Result<(), RunError> {
     match command(spec).status() {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => Err(RunError::Failed(format!(

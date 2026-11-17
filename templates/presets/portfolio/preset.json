@@ -1,7 +1,7 @@
 {
   "id": "portfolio",
   "name": "Portfolio",
-  "description": "Personal portfolio with project showcase",
+  "description": "Adds section folders and sample projects JSON.",
   "icon": "💼",
   "structure": {
     "folders": [

@@ -30,6 +30,8 @@ pub struct Artifact {
     pub format: String,
     pub template: String,
     #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
@@ -40,6 +42,7 @@ pub struct Artifact {
 pub struct PlannedArtifact {
     pub tool: String,
     pub path: String,
+    pub kind: String,
     pub content: String,
 }
 
@@ -115,6 +118,16 @@ pub fn plan(tools: &[Tool], selected: &[String]) -> Result<Plan, String> {
         })?;
         for artifact in &tool.artifacts {
             let path = artifact.resolve_path(&tool.id);
+            if path.is_empty()
+                || path.contains('\\')
+                || path.contains(':')
+                || path
+                    .split('/')
+                    .any(|part| part.is_empty() || part == "." || part == "..")
+            {
+                return Err(format!("invalid AI artifact path '{path}'"));
+            }
+            let kind = artifact.kind()?;
             if let Some(existing) = plan.artifacts.iter().find(|a| a.path == path) {
                 plan.overlaps.push(Overlap {
                     path,
@@ -133,6 +146,7 @@ pub fn plan(tools: &[Tool], selected: &[String]) -> Result<Plan, String> {
             plan.artifacts.push(PlannedArtifact {
                 tool: tool.id.clone(),
                 path,
+                kind: kind.to_string(),
                 content,
             });
         }
@@ -159,10 +173,12 @@ pub fn render(format: &str, body: &str, name: &str, description: &str) -> Result
     } else {
         description
     };
+    let name = serde_json::to_string(name).map_err(|error| error.to_string())?;
+    let description = serde_json::to_string(description).map_err(|error| error.to_string())?;
     let rendered = match format {
         "markdown" => body.to_string(),
         "mdc" => format!(
-            "---\ndescription: {description}\nglobs: **/*\nalwaysApply: true\n---\n\n{body}"
+            "---\ndescription: {description}\nglobs: \"**/*\"\nalwaysApply: true\n---\n\n{body}"
         ),
         "skill" => {
             format!("---\nname: {name}\ndescription: {description}\n---\n\n{body}")
@@ -174,6 +190,24 @@ pub fn render(format: &str, body: &str, name: &str, description: &str) -> Result
 }
 
 impl Artifact {
+    /// Capability is independent of the rendering format.
+    pub fn kind(&self) -> Result<&str, String> {
+        let kind = if self.kind.is_empty() {
+            match self.format.as_str() {
+                "markdown" | "mdc" => "rule",
+                "skill" => "skill",
+                "command" => "command",
+                other => return Err(format!("unknown AI artifact format '{}'", other)),
+            }
+        } else {
+            self.kind.as_str()
+        };
+        match kind {
+            "rule" | "skill" | "command" | "workflow" => Ok(kind),
+            _ => Err(format!("unknown AI artifact kind '{}'", kind)),
+        }
+    }
+
     /// Destination path with `{name}` replaced.
     pub fn resolve_path(&self, tool_id: &str) -> String {
         let name = self.name.as_deref().unwrap_or(tool_id);

@@ -105,6 +105,38 @@ fn test_help_command_same_as_flag() {
 }
 
 #[test]
+fn help_describes_launcher_and_verification_reports_in_english() {
+    for args in [
+        vec!["help"],
+        vec!["help", "new"],
+        vec!["help", "analyze"],
+        vec!["help", "audit"],
+        vec!["help", "verify"],
+        vec!["faq"],
+    ] {
+        let (stdout, ok) = run(&args);
+        assert!(ok, "{args:?}");
+        for indonesian in ["Pilih", "proyek", "jalankan", "direktori", "CONTOH"] {
+            assert!(!stdout.contains(indonesian), "{args:?}: {stdout}");
+        }
+    }
+
+    let (help, _) = run(&["help"]);
+    assert!(help.contains("launcher"), "{help}");
+    assert!(help.contains("audit writes"), "{help}");
+    let (verify, _) = run(&["help", "verify"]);
+    for expected in [
+        "--report",
+        "--output",
+        "--overwrite",
+        "junit",
+        "not a sandbox",
+    ] {
+        assert!(verify.contains(expected), "missing {expected}: {verify}");
+    }
+}
+
+#[test]
 fn test_help_audit_lists_export_options() {
     let (stdout, ok) = run(&["help", "audit"]);
     assert!(ok);

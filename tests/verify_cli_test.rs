@@ -47,6 +47,20 @@ fn run(args: &[&str]) -> (String, Option<i32>) {
     (text, out.status.code())
 }
 
+fn run_output(args: &[&str], dir: &PathBuf) -> (String, String, Option<i32>) {
+    let out = Command::new(BIN)
+        .args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("failed to run snipe-code");
+    (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+        out.status.code(),
+    )
+}
+
 #[test]
 fn main_help_lists_verify() {
     let (stdout, status) = run(&["help"]);
@@ -65,10 +79,10 @@ fn per_command_help_documents_options_and_exit_status() {
         "--security",
         "--no-install",
         "--json",
-        "KEAMANAN",
+        "SAFETY",
         "blocked",
         "EXIT STATUS",
-        "4   hasil parsial",
+        "4   incomplete",
         "not-applicable",
         "audit",
     ] {
@@ -138,6 +152,76 @@ fn no_install_with_only_install_is_rejected_by_the_cli() {
 }
 
 #[test]
+fn report_export_writes_json_and_keeps_stdout_to_report_path() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "package.json",
+        r#"{"name":"app","scripts":{"test":"echo test"}}"#,
+    );
+    let (stdout, stderr, status) = run_output(
+        &[
+            "verify",
+            ".",
+            "--only",
+            "test",
+            "--report",
+            "json",
+            "--output",
+            "verify.json",
+        ],
+        &fixture.path,
+    );
+    assert_eq!(status, Some(3), "{stdout}\n{stderr}");
+    assert_eq!(stdout.trim(), "verify.json");
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(fixture.path.join("verify.json")).unwrap()).unwrap();
+    assert_eq!(report["exit_code"], 3);
+    assert_eq!(report["counts"]["blocked"], 1);
+    assert!(
+        report["parts"][0]["gates"][0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("database target unknown")
+    );
+}
+
+#[test]
+fn report_argument_errors_exit_before_gates() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "package.json",
+        r#"{"name":"app","scripts":{"test":"echo test"}}"#,
+    );
+    let (stdout, stderr, status) = run_output(
+        &["verify", ".", "--report", "pdf", "--output", "report.pdf"],
+        &fixture.path,
+    );
+    assert_eq!(status, Some(2), "{stdout}\n{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("json, junit, or md"), "{stderr}");
+    assert!(!fixture.path.join("report.pdf").exists());
+}
+
+#[test]
+fn report_write_failure_is_runtime_error_on_stderr() {
+    let fixture = Fixture::new();
+    let (stdout, stderr, status) = run_output(
+        &[
+            "verify",
+            ".",
+            "--report",
+            "json",
+            "--output",
+            "missing/report.json",
+        ],
+        &fixture.path,
+    );
+    assert_eq!(status, Some(3), "{stdout}\n{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("cannot write"), "{stderr}");
+}
+
+#[test]
 fn readme_documents_verify_and_its_exit_status_contract() {
     let readme = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("README.md");
     let text = fs::read_to_string(&readme).expect("read README");
@@ -145,6 +229,11 @@ fn readme_documents_verify_and_its_exit_status_contract() {
         "snipe-code verify",
         "--only",
         "--security",
+        "--report json",
+        "--report junit",
+        "--report md",
+        "--output",
+        "--overwrite",
         "not-applicable",
         "unavailable",
         "tidak ada gate yang dijalankan",

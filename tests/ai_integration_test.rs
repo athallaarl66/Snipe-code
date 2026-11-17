@@ -200,20 +200,20 @@ fn test_format_renderers_produce_expected_shape() {
 
     let mdc = normalized(&ai_tools::render("mdc", body, "snipe-code", "d").unwrap());
     assert!(
-        mdc.starts_with("---\ndescription: d\nglobs: **/*\nalwaysApply: true\n---\n\n"),
-        "mdc must carry its frontmatter: {mdc}"
+        mdc.starts_with("---\ndescription: \"d\"\nglobs: \"**/*\"\nalwaysApply: true\n---\n\n"),
+        "mdc must carry valid YAML frontmatter: {mdc}"
     );
     assert!(mdc.ends_with(body));
 
     let skill = normalized(&ai_tools::render("skill", body, "snipe-code", "d").unwrap());
     assert!(
-        skill.starts_with("---\nname: snipe-code\ndescription: d\n---\n\n"),
+        skill.starts_with("---\nname: \"snipe-code\"\ndescription: \"d\"\n---\n\n"),
         "skill must carry name and description frontmatter: {skill}"
     );
 
     let command = normalized(&ai_tools::render("command", body, "snipe-code", "d").unwrap());
     assert!(
-        command.starts_with("---\ndescription: d\n---\n\n"),
+        command.starts_with("---\ndescription: \"d\"\n---\n\n"),
         "command must carry its frontmatter: {command}"
     );
     assert!(!command.contains("alwaysApply"));
@@ -228,6 +228,7 @@ fn test_unknown_format_and_unknown_tool_are_errors() {
             path: "FIXTURE.md".to_string(),
             format: "not-a-format".to_string(),
             template: "shared".to_string(),
+            kind: String::new(),
             name: None,
             description: None,
         }],
@@ -473,9 +474,7 @@ fn test_command_artifacts_only_for_tools_with_a_slash_command() {
         let commands: Vec<&str> = plan
             .artifacts
             .iter()
-            .filter(|artifact| {
-                artifact.path.ends_with("snipe-code.md") || artifact.path.contains("workflows/")
-            })
+            .filter(|artifact| artifact.kind == "command" || artifact.kind == "workflow")
             .map(|artifact| artifact.path.as_str())
             .collect();
         assert!(
@@ -512,7 +511,7 @@ fn command_artifacts_require_explicit_approval_for_each_side_effect() {
         for definition in tool
             .artifacts
             .iter()
-            .filter(|item| item.template == "command")
+            .filter(|item| item.kind == "command" || item.kind == "workflow")
         {
             let path = definition.resolve_path(&tool.id);
             let plan = ai_tools::plan(&tools, &selection(&[&tool.id])).unwrap();
@@ -530,6 +529,8 @@ fn command_artifacts_require_explicit_approval_for_each_side_effect() {
                 "endpoint access",
                 "data transmission",
                 "without approval",
+                "Default to offline operation",
+                "not sandboxed",
             ] {
                 assert!(
                     artifact.content.contains(expected),
@@ -649,7 +650,7 @@ fn test_structured_result_on_stdout_keeps_progress_on_stderr() {
         stderr.contains("Project created"),
         "progress belongs on stderr: {stderr}"
     );
-    assert!(dir.0.join("app/.claude/commands/snipe-code.md").exists());
+    assert!(dir.0.join("app/.claude/commands/snipe-audit.md").exists());
 }
 
 #[test]
@@ -686,5 +687,163 @@ fn test_readme_lists_every_registry_tool() {
     }
     for token in ["--ai-tools", "none", "--json", "ai-tools.json"] {
         assert!(readme.contains(token), "README must document {token}");
+    }
+}
+
+#[test]
+fn every_agent_has_exact_artifacts_and_types() {
+    let tools = ai_tools::load().unwrap();
+    let cases: &[(&str, &[(&str, &str)])] = &[
+        ("agents-md", &[("AGENTS.md", "rule")]),
+        (
+            "claude-code",
+            &[
+                ("CLAUDE.md", "rule"),
+                (".claude/skills/snipe-code/SKILL.md", "skill"),
+                (".claude/skills/snipe-qa-planning/SKILL.md", "skill"),
+                (".claude/commands/snipe-audit.md", "command"),
+                (".claude/commands/snipe-verify.md", "command"),
+                (".claude/commands/snipe-test.md", "command"),
+            ],
+        ),
+        (
+            "cursor",
+            &[
+                (".cursor/rules/snipe-code.mdc", "rule"),
+                (".cursorrules", "rule"),
+            ],
+        ),
+        (
+            "opencode",
+            &[
+                (".opencode/skills/snipe-code/SKILL.md", "skill"),
+                (".opencode/skills/snipe-qa-planning/SKILL.md", "skill"),
+                (".opencode/commands/snipe-audit.md", "command"),
+                (".opencode/commands/snipe-verify.md", "command"),
+                (".opencode/commands/snipe-test.md", "command"),
+            ],
+        ),
+        (
+            "antigravity",
+            &[
+                ("GEMINI.md", "rule"),
+                (".agents/rules/antigravity.md", "rule"),
+                (".agents/skills/snipe-code/SKILL.md", "skill"),
+                (".agents/skills/snipe-qa-planning/SKILL.md", "skill"),
+                (".agents/workflows/snipe-audit.md", "workflow"),
+                (".agents/workflows/snipe-verify.md", "workflow"),
+                (".agents/workflows/snipe-test.md", "workflow"),
+            ],
+        ),
+        (
+            "github-copilot",
+            &[(".github/copilot-instructions.md", "rule")],
+        ),
+        ("windsurf", &[(".windsurf/rules/snipe-code.md", "rule")]),
+        (
+            "hermes-agent",
+            &[
+                (".hermes/skills/snipe-code/SKILL.md", "skill"),
+                (".hermes/skills/snipe-qa-planning/SKILL.md", "skill"),
+            ],
+        ),
+        ("codex", &[("AGENTS.md", "rule")]),
+        ("gemini-cli", &[("GEMINI.md", "rule")]),
+    ];
+    assert_eq!(tools.len(), cases.len());
+    for (id, expected) in cases {
+        let plan = ai_tools::plan(&tools, &selection(&[id])).unwrap();
+        let actual: Vec<_> = plan
+            .artifacts
+            .iter()
+            .map(|a| (a.path.as_str(), a.kind.as_str()))
+            .collect();
+        assert_eq!(&actual, expected, "{id}");
+        assert!(
+            !actual
+                .iter()
+                .any(|(path, kind)| (*kind == "command" || *kind == "workflow")
+                    && path.ends_with("/snipe-code.md"))
+        );
+    }
+}
+
+#[test]
+fn task_workflows_have_exact_paths_and_scoped_safety() {
+    let tools = ai_tools::load().unwrap();
+    for (id, root, kind) in [
+        ("claude-code", ".claude/commands", "command"),
+        ("opencode", ".opencode/commands", "command"),
+        ("antigravity", ".agents/workflows", "workflow"),
+    ] {
+        let plan = ai_tools::plan(&tools, &selection(&[id])).unwrap();
+        let entries: Vec<_> = plan.artifacts.iter().filter(|a| a.kind == kind).collect();
+        let expected: Vec<_> = ["audit", "verify", "test"]
+            .iter()
+            .map(|n| format!("{root}/snipe-{n}.md"))
+            .collect();
+        assert_eq!(
+            entries.iter().map(|a| a.path.clone()).collect::<Vec<_>>(),
+            expected
+        );
+        for artifact in entries {
+            for token in [
+                "separate explicit approval",
+                "report writes",
+                "source edits",
+                "install",
+                "tests",
+                "endpoint access",
+                "data transmission",
+                "preflight",
+                "unknown",
+                "without approval",
+                "Default to offline operation",
+                "not sandboxed",
+            ] {
+                assert!(
+                    artifact.content.contains(token),
+                    "{} missing {token}",
+                    artifact.path
+                );
+            }
+            if artifact.path.ends_with("snipe-audit.md") {
+                assert!(artifact.content.contains("snipe-code audit . --export md"));
+            }
+            if artifact.path.ends_with("snipe-verify.md") {
+                assert!(artifact.content.contains("snipe-code verify ."));
+            }
+            if artifact.path.ends_with("snipe-test.md") {
+                assert!(artifact.content.contains("snipe-code verify --only test"));
+            }
+        }
+    }
+}
+
+#[test]
+fn unsafe_artifact_paths_are_rejected_before_write() {
+    for path in [
+        "../outside",
+        "/absolute",
+        "C:/outside",
+        "dir/../outside",
+        "dir\\outside",
+    ] {
+        let tool = Tool {
+            id: "bad".into(),
+            name: "bad".into(),
+            artifacts: vec![Artifact {
+                path: path.into(),
+                format: "markdown".into(),
+                template: "shared".into(),
+                kind: "rule".into(),
+                name: None,
+                description: None,
+            }],
+        };
+        assert!(
+            ai_tools::plan(&[tool], &selection(&["bad"])).is_err(),
+            "{path}"
+        );
     }
 }

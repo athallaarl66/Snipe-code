@@ -5,7 +5,8 @@
 
 
 A Rust CLI that scaffolds projects, reads an existing codebase, and audits it for
-security risks. Everything runs locally: no account, no API key, no AI service.
+security risks. Core scaffolding and analysis do not require an AI service or API key.
+Verification runs external project commands, which may access the network.
 
 Current distribution status, checked 2026-10-21: release `v0.5.3` publishes an archive for
 all four targets with a checksum and a cosign bundle each, crate `0.5.3` is on crates.io,
@@ -111,9 +112,19 @@ installed through cargo. No registry keys or system files are touched.
 
 ## Commands
 
+Run `snipe-code` in an interactive terminal to choose a goal: Create a new
+project, Understand an existing project, Run tests and quality checks, Audit project
+security, View help, or Exit. Security offers scan, export, history, and legacy audit;
+legacy audit writes reports into the target. With no interactive terminal, a bare
+`snipe-code` prints usage and exits `2` without starting an operation.
+
+Direct commands bypass the launcher, including `new`, `analyze`, `audit`, and
+`verify`. For scripts, specify `snipe-code new` rather than a bare invocation.
+
 | Command | What it does |
 | --- | --- |
-| `snipe-code` or `snipe-code new` | Wizard: template, stacks, database, project name, AI tools, generate |
+| `snipe-code` | Interactive goal launcher |
+| `snipe-code new` | Project-generation wizard |
 | `snipe-code analyze [PATH]` | Read-only report: languages and size, structure, entry points, dependencies, limits |
 | `snipe-code audit [PATH]` | Legacy heuristic audit with report export |
 | `snipe-code scan [PATH] [--json] [--save]` | Read-only audit; `--save` stores versioned JSON locally |
@@ -129,18 +140,19 @@ installed through cargo. No registry keys or system files are touched.
 
 | Command | Run it from | Reads | Writes | Exit codes |
 | --- | --- | --- | --- | --- |
-| `new` (or no argument) | the directory that should hold the new project. The project is created at `<current directory>/<name>`, so `cd` to its parent first. A path argument does not move it. | the embedded templates, or `SNIPE_CODE_TEMPLATES` | `<current directory>/<name>/`, then `git init` and an initial commit inside it | `0` generated, `1` generation failed, `2` usage error, `3` runtime error |
+| `new` | the directory that should hold the new project. The project is created at `<current directory>/<name>`, so `cd` to its parent first. A path argument does not move it. | the embedded templates, or `SNIPE_CODE_TEMPLATES` | `<current directory>/<name>/`; Git actions depend on the invocation, as described below | `0` generated, `1` generation failed, `2` usage error, `3` runtime error |
 | `analyze [PATH]` | anywhere; `PATH` defaults to the current directory | project files | nothing | `0`, `2`, `3` |
 | `audit [PATH]` | anywhere; legacy defaults to current directory | project files | legacy report files inside `PATH` | `0`, `1`, `2`, `3` |
 | `scan [PATH] [--json] [--save]` | anywhere | project files | JSON on stdout; history DB only with `--save` | `0`, `2`, `3` |
 | `export <scan.json> --format <formats> --output <DIR>` | anywhere | versioned scan result | selected report files inside `DIR` | `0`, `2`, `3` |
 | `history` | anywhere | local history DB | JSON file for export; DB for delete | `0`, `2`, `3` |
-| `verify [PATH]` | the project directory, or point `PATH` at it | manifests | nothing by itself; the gates it runs write into the project | `0`, `1`, `2`, `3` |
+| `verify [PATH]` | the project directory, or point `PATH` at it | manifests | an explicit report when requested; gates may write into the project | `0`, `1`, `2`, `3`, `4` |
 | `help`, `version`, `faq` | anywhere | nothing | nothing | `0` |
 
 Commands with side effects:
 
-- `new` creates a project and initializes its Git repository.
+- `new` creates a project. Interactive Git initialization and commit require separate
+  choices; non-interactive `new` attempts both when Git is available.
 - `scan` is read-only unless passed `--save`, which writes to the local history database.
 - Legacy `audit` writes reports into the scanned directory. Without a terminal it skips
   the format prompt and exports Markdown, printing
@@ -153,16 +165,24 @@ Commands with side effects:
 ## new: scaffold a project
 
 ```bash
-snipe-code                                    # wizard
-snipe-code --dry-run                          # preview the structure, write nothing
+snipe-code                                    # interactive goal launcher
+snipe-code new --dry-run                      # preview the structure, write nothing
 snipe-code new --ai-tools cursor,claude-code  # pick AI artifacts without prompting
 snipe-code new --ai-tools none --name demo --json
 snipe-code new --template blog --frontend nextjs --backend none --database none --name site
 ```
 
-Wizard order: template, frontend, backend, database, project name, AI tools, collision
-prompt (Overwrite or Cancel), generate, then `git init` and an initial commit. The
-Docker, CI, and AI workspace files are written during generation.
+The interactive wizard selects preset, frontend, backend, database, project name,
+AI integrations, Git initialization, and initial commit. It shows the destination
+and selections before offering Preview, Create project, Back, or Cancel. Preview
+shows planned files without creating the project. An existing destination prompts
+for cancellation or overwrite. Git initialization and commit are separate choices;
+a declined or unavailable Git action leaves the generated project in place.
+
+Presets add structure to the selected framework stack. No preset adds no
+preset-specific files; Company Profile adds page and layout structure; Portfolio
+adds portfolio structure; Blog adds MDX, a sample post, and static RSS. Docker,
+CI, and AI workspace files are written during generation.
 
 The project directory is created at `<current directory>/<name>`, so run the wizard
 from the folder that should hold it. The name comes from the prompt or `--name`; no
@@ -177,11 +197,12 @@ argument redirects the output somewhere else.
 | `--database <id>` | `postgresql`, `mysql`, or `none`; skips the database prompt |
 | `--ai-tools <ids\|none>` | AI agent artifacts to generate, comma separated; `none` skips the prompt and generates none |
 | `--name <n>` | Skip the project-name prompt |
-| `--json` | Generate result (`project`, `ai_tools`, `ai_artifacts`, `ai_overlaps`, `files`, `outcome`) as JSON on stdout, progress on stderr |
+| `--json` | Generate result (`project`, `ai_tools`, `ai_artifacts`, `ai_artifact_types`, `ai_overlaps`, `files`, `outcome`) as JSON on stdout, progress on stderr |
 
-With no terminal (a script or CI) the wizard uses defaults and never prompts: template
+With no terminal, explicit `snipe-code new` uses defaults and does not prompt: preset
 none, frontend Next.js, backend none, database none, project name `my-project`. Pass
-`--name` to make the project name explicit.
+`--name` to make the project name explicit. After generation it attempts Git init and
+an initial commit when Git is available; failures are warnings.
 
 Supported stacks. Frontend: Next.js, React (Vite), Vue, Nuxt. Backend: .NET 8,
 NestJS, Go (Gin), Spring Boot, Laravel 12. Database: PostgreSQL, MySQL. A generated
@@ -363,13 +384,27 @@ Exit code:
 
 Use `--json` for a machine-readable report containing per-gate and aggregate status.
 
+To save verification results, choose one format and an explicit destination:
+
+```bash
+snipe-code verify . --report json --output verify.json
+snipe-code verify . --report junit --output verify.xml
+snipe-code verify . --report md --output verify.md
+```
+
+These are test and quality-gate reports, not audit security reports. Existing files
+are kept unless `--overwrite` is supplied. A successful write keeps the gate's
+exit code; a write error exits `3`. File reports and stdout `--json` are separate
+options. Project commands still need approval and can write files or use the network.
+In CI without approval, applicable gates are blocked rather than marked as passed.
+
 Preflight does not sandbox project commands or prove all their side effects. Approved
 commands run with host permissions and may access network or files beyond the project.
 They can write `node_modules/` and `package-lock.json` (`npm install`), update `go.sum`
 and `go.mod` (`go mod tidy`), and create `target/`, `obj/`, or `bin/`. Nothing is
 removed. `--no-install` skips install and reports `not-applicable`; combining it with
-`--only install` is a usage error. Use `snipe-code analyze` or `snipe-code audit` for
-read-only checks.
+`--only install` is a usage error. Use `snipe-code analyze` or `snipe-code scan` for
+read-only checks. Legacy `audit` writes reports into the scanned directory.
 
 `--security` uses the scanners each ecosystem ships: `npm audit`, `composer audit`,
 `dotnet list package --vulnerable`. Go and Java report this gate as `not-applicable`
@@ -384,7 +419,7 @@ Python or Ruby yet.
 ## Templates
 
 Each stack and preset body is a real file under `templates/`, embedded into the binary
-at build time, so the tool stays offline and stays a single executable:
+at build time, so scaffolding does not need to download templates:
 
 ```text
 templates/
@@ -415,74 +450,40 @@ version. The `new` output names the source it used, `Templates: local templates 
 
 ## AI agent tools
 
-A generated project can carry instruction artifacts for the AI tools you use, each at
-the path that tool reads. The files fall into three groups, and how each group reaches
-the agent differs.
+Selected integrations add project-local instructions. They do not start a model,
+authenticate a provider, or store credentials. Agent behavior and discovery depend on
+the agent; generated instructions are not a runtime permission boundary.
 
-| Job | Files | When it runs |
-| --- | --- | --- |
-| Rules | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, `.cursor/rules/snipe-code.mdc`, `.windsurf/rules/snipe-code.md`, `.github/copilot-instructions.md`, `.agents/rules/antigravity.md` | the tool reads the file at the start of a session, nothing to type |
-| Skill | `.claude/skills/snipe-code/SKILL.md`, `.opencode/skills/snipe-code/SKILL.md`, `.hermes/skills/snipe-code/SKILL.md`, `.agents/skills/snipe-code.md` | it shows up in the tool's skill list, and the agent loads it when its description matches the work |
-| Command | `.claude/commands/snipe-code.md`, `.opencode/commands/snipe-code.md`, `.agents/workflows/snipe-code.md` | you type `/snipe-code` in the tool |
+| Tool | Rules | Skills | Commands | Workflows |
+| --- | --- | --- | --- | --- |
+| Cross-tool (AGENTS.md) | `AGENTS.md` | - | - | - |
+| Claude Code | `CLAUDE.md` | `.claude/skills/snipe-code/SKILL.md`, `.claude/skills/snipe-qa-planning/SKILL.md` | `.claude/commands/snipe-{audit,verify,test}.md` | - |
+| Cursor | `.cursor/rules/snipe-code.mdc`, `.cursorrules` | - | - | - |
+| OpenCode | - | `.opencode/skills/snipe-code/SKILL.md`, `.opencode/skills/snipe-qa-planning/SKILL.md` | `.opencode/commands/snipe-{audit,verify,test}.md` | - |
+| Antigravity | `GEMINI.md`, `.agents/rules/antigravity.md` | `.agents/skills/snipe-code/SKILL.md`, `.agents/skills/snipe-qa-planning/SKILL.md` | - | `.agents/workflows/snipe-{audit,verify,test}.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` | - | - | - |
+| Windsurf | `.windsurf/rules/snipe-code.md` | - | - | - |
+| Hermes Agent | - | `.hermes/skills/snipe-code/SKILL.md`, `.hermes/skills/snipe-qa-planning/SKILL.md` | - | - |
+| Codex | `AGENTS.md` | - | - | - |
+| Gemini CLI | `GEMINI.md` | - | - | - |
 
-### What the rules and the skill tell the agent
-
-Both carry the same guidance: read `.ai-workspace/rules.md` before editing code, keep the
-change scoped to the request, run the project's build and test command before claiming
-it works, and re-run `snipe-code audit . --export md` when the change touches
-input handling, secrets, or queries. Review each HIGH finding against source behavior;
-report false positives and verify confirmed fixes with tests and a repeat audit.
-
-The `/snipe-code` command runs that audit, then asks the agent to review findings, test
-confirmed fixes, and repeat the audit. It is the only command artifact generated for
-agent tools; `analyze`, `verify`, and `new` have no command counterpart.
-
-`snipe-code` needs to be on `PATH` for the audit step in the skill and in the command to
-work.
-
-### Which tool gets what
-
-| Tool | Files | How you use it |
-| --- | --- | --- |
-| Cross-tool (AGENTS.md) | `AGENTS.md` | read by any agent that follows the AGENTS.md convention |
-| Claude Code | `CLAUDE.md`, `.claude/skills/snipe-code/SKILL.md`, `.claude/commands/snipe-code.md` | the skill loads itself; `/snipe-code` starts the audit |
-| Cursor | `.cursor/rules/snipe-code.mdc`, `.cursorrules` | attached to every edit, because the rule sets `alwaysApply: true` |
-| OpenCode | `.opencode/skills/snipe-code/SKILL.md`, `.opencode/commands/snipe-code.md` | the skill loads itself; `/snipe-code` starts the audit |
-| Antigravity | `GEMINI.md`, `.agents/rules/antigravity.md`, `.agents/skills/snipe-code.md`, `.agents/workflows/snipe-code.md` | the rule and the skill load themselves; the workflow starts the audit |
-| GitHub Copilot | `.github/copilot-instructions.md` | read as repository instructions |
-| Windsurf | `.windsurf/rules/snipe-code.md` | read as a project rule |
-| Hermes Agent | `.hermes/skills/snipe-code/SKILL.md` | the skill loads itself |
-| Codex | `AGENTS.md` | same file the cross-tool entry writes |
-| Gemini CLI | `GEMINI.md` | same file the Antigravity entry writes |
-
-Codex and Gemini CLI point at files another entry already writes. Selecting both writes
-the file once and reports the overlap, so the output reads `AGENTS.md: kept agents-md,
-skipped codex`.
-
-### Generating them
+The three named artifacts guide audit review, verification, and test authoring.
+They request separate approval for effects; the agent remains responsible for
+following those instructions, and CLI preflight still applies. Generated projects
+include example test infrastructure. `verify` runs existing declared tests, not
+new tests inferred from source. An agent may author or repair tests from source
+and requirements, subject to review and approval.
 
 ```bash
-snipe-code                                     # wizard step 6, multi-select, optional
-snipe-code new --ai-tools cursor,claude-code   # skip the selection prompt
-snipe-code new --ai-tools none --name demo     # no agent artifacts at all
-snipe-code new --dry-run                       # print the structure, write nothing
+snipe-code new --ai-tools cursor,claude-code
+snipe-code new --ai-tools none --name demo
+snipe-code new --dry-run
 ```
 
-Every path is relative to the project root, and no agent configuration lands in your home
-directory.
-
-`.ai-workspace/rules.md` and `.ai-workspace/rules.mdc` are always written, whether or not
-an agent tool was selected. They carry the guidance the per-tool artifacts render from,
-so a tool with no dedicated convention still finds the rules in one known place.
-
-The tool list, paths, and formats live in `templates/ai-tools.json` (formats:
-`markdown`, `mdc`, `skill`, `command`). Adding a tool is a registry entry, not a code
-change. An unknown format produces an error instead of being dropped.
-
-- `--ai-tools <ids|none>` skips the selection prompt; `none` means no agent artifacts.
-- `--json` puts the generate result on stdout and progress on stderr.
-- A path claimed by more than one tool, such as `AGENTS.md` by the cross-tool entry and
-  Codex, is written once and the overlap is reported.
+`.ai-workspace/rules.md` and `.ai-workspace/rules.mdc` are always written.
+Selected artifacts are project-local. Paths claimed by multiple integrations, such
+as `AGENTS.md`, are written once and overlaps are reported. Registry entries and
+artifact formats are in `templates/ai-tools.json`.
 
 ## Supported platforms
 

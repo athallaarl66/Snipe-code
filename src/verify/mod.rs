@@ -3,6 +3,7 @@
 
 pub mod detect;
 pub mod exec;
+pub mod report;
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -386,18 +387,43 @@ pub fn run_with_approval(
 }
 
 fn approve_interactively(plan: &GatePlan, part: &PartPlan, database_target: Option<&str>) -> bool {
-    println!(
+    approve_interactively_to(plan, part, database_target, false)
+}
+
+/// CLI approval callback for invocations whose stdout must remain machine-readable.
+pub fn approve_interactively_stderr(
+    plan: &GatePlan,
+    part: &PartPlan,
+    database_target: Option<&str>,
+) -> bool {
+    approve_interactively_to(plan, part, database_target, true)
+}
+
+fn approve_interactively_to(
+    plan: &GatePlan,
+    part: &PartPlan,
+    database_target: Option<&str>,
+    stderr: bool,
+) -> bool {
+    let line = |text: String| {
+        if stderr {
+            eprintln!("{text}");
+        } else {
+            println!("{text}");
+        }
+    };
+    line(format!(
         "Preflight: {} gate in {}",
         plan.gate.name(),
         part.dir.display()
-    );
+    ));
     for command in &plan.commands {
-        println!("  command: {}", command.display());
-        println!("  cwd: {}", command.dir.display());
+        line(format!("  command: {}", command.display()));
+        line(format!("  cwd: {}", command.dir.display()));
     }
-    println!("  effects: {}", gate_effects(plan.gate));
+    line(format!("  effects: {}", gate_effects(plan.gate)));
     if let Some(target) = database_target {
-        println!("  database target: {target}");
+        line(format!("  database target: {target}"));
     }
     if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         return false;
@@ -748,6 +774,14 @@ pub fn render_json(report: &Report) -> Result<String, String> {
         "root": report.root,
         "status": report.status().name(),
         "exit_code": exit_status(report),
+        "counts": {
+            "passed": report.count("passed"),
+            "failed": report.count("failed"),
+            "blocked": report.count("blocked"),
+            "unavailable": report.count("unavailable"),
+            "not-applicable": report.count("not-applicable"),
+            "executed": report.executed(),
+        },
         "parts": parts,
     }))
     .map_err(|error| error.to_string())

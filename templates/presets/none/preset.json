@@ -1,7 +1,7 @@
 {
   "id": "none",
-  "name": "No Template — Clean Start",
-  "description": "Stack-only structure, no template files",
+  "name": "No preset",
+  "description": "No preset-specific files; the selected stack supplies project files.",
   "icon": "📋",
   "structure": {
     "folders": [],

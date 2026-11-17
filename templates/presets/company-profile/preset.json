@@ -1,7 +1,7 @@
 {
   "id": "company-profile",
   "name": "Company Profile",
-  "description": "Professional company website with SEO",
+  "description": "Adds page and layout folders; no pages or SEO implementation.",
   "icon": "🏢",
   "structure": {
     "folders": [

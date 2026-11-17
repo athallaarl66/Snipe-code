@@ -1,6 +1,8 @@
 //! Structured output: `analyze --json`, `audit --json`, and the help text that
 //! documents both.
 
+mod common;
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -598,4 +600,119 @@ fn test_help_documents_the_structured_output_options() {
             "audit help is missing {expected}:\n{audit_help}"
         );
     }
+}
+
+#[test]
+fn generated_ai_types_match_written_files_and_keep_overlaps() {
+    let fixture = Fixture::new("ai-result");
+    let selection = ["agents-md", "codex", "claude-code", "antigravity"]
+        .map(str::to_owned)
+        .to_vec();
+    let expected = snipe_code::ai_tools::plan_selected(&selection).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "new",
+            "--name",
+            "app",
+            "--ai-tools",
+            "agents-md,codex,claude-code,antigravity",
+            "--json",
+        ])
+        .current_dir(&fixture.dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let artifacts = json["ai_artifact_types"]
+        .as_array()
+        .expect("artifact types");
+    assert_eq!(artifacts.len(), expected.artifacts.len());
+    for (actual, planned) in artifacts.iter().zip(&expected.artifacts) {
+        assert_eq!(actual["tool"], planned.tool);
+        assert_eq!(actual["path"], planned.path);
+        assert_eq!(actual["kind"], planned.kind);
+        assert!(fixture.dir.join("app").join(&planned.path).is_file());
+        assert!(
+            json["ai_artifacts"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!(planned.path))
+        );
+    }
+    for kind in ["rule", "skill", "command", "workflow"] {
+        assert!(artifacts.iter().any(|a| a["kind"] == kind), "{kind}");
+    }
+    assert!(json["ai_overlaps"].as_array().unwrap().iter().any(|o| {
+        let text = o.as_str().unwrap();
+        text.contains("AGENTS.md") && text.contains("codex")
+    }));
+}
+
+#[test]
+fn dry_run_json_has_no_written_ai_artifact_types() {
+    let fixture = Fixture::new("ai-dry-result");
+    let output = Command::new(BIN)
+        .args([
+            "new",
+            "--name",
+            "app",
+            "--ai-tools",
+            "claude-code",
+            "--dry-run",
+            "--json",
+        ])
+        .current_dir(&fixture.dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ai_artifact_types"], serde_json::json!([]));
+    assert!(!fixture.dir.join("app").exists());
+}
+
+#[test]
+fn generator_exposes_ai_types_with_overlap() {
+    let workspace = common::Workspace::new("ai-result-library");
+    let selection = ["agents-md", "codex", "claude-code", "antigravity"]
+        .map(str::to_owned)
+        .to_vec();
+    let expected = snipe_code::ai_tools::plan_selected(&selection).unwrap();
+    let config = snipe_code::generator::GenerateConfig {
+        project_name: "app".into(),
+        template_id: "none".into(),
+        frontend: "nextjs".into(),
+        backend: "none".into(),
+        database: "none".into(),
+        ai_tools: selection,
+    };
+    let result = snipe_code::generator::generate(&config, false).unwrap();
+    assert_eq!(result.ai_artifact_types.len(), expected.artifacts.len());
+    for (actual, planned) in result.ai_artifact_types.iter().zip(&expected.artifacts) {
+        assert_eq!(
+            (&actual.tool, &actual.path, &actual.kind),
+            (&planned.tool, &planned.path, &planned.kind)
+        );
+        assert!(result.ai_artifacts.contains(&actual.path));
+        assert!(workspace.dir.join("app").join(&actual.path).is_file());
+    }
+    let json = serde_json::to_value(&result.ai_artifact_types).unwrap();
+    assert_eq!(json[0]["tool"], result.ai_artifact_types[0].tool);
+    assert_eq!(json[0]["path"], result.ai_artifact_types[0].path);
+    assert_eq!(json[0]["kind"], result.ai_artifact_types[0].kind);
+    assert!(
+        result
+            .ai_overlaps
+            .iter()
+            .any(|o| o.contains("AGENTS.md") && o.contains("codex"))
+    );
 }
