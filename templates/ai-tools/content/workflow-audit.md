@@ -1,0 +1,10 @@
+# Security audit
+
+1. Preview `snipe-code audit . --export md`: show the exact project target, working directory, command, report destination, and file changes. Audit writes a security report in the target. Obtain explicit approval for that report write before running it.
+2. Review findings against source. Identify false positives; propose fixes only for confirmed risks. Before source edits, preview exact files and changes and obtain separate explicit approval for that scope.
+3. Preview the exact test commands, working directory, database target, endpoint access, network/data transmission, installation and expected effects. Obtain separate explicit approval for each applicable effect before running tests. Do not install or access endpoints or share data without their own approval.
+4. Preview the repeated audit and report write and obtain approval for that action before rerunning. Report actual outcomes and any blocked or unverified steps; never claim a pass without execution.
+
+## Safety
+
+Invoking this workflow is not approval. Before report writes, source edits, install, tests, endpoint access, or data transmission, show the exact action, target, data, and effects and obtain separate explicit approval for each scope. Changed or unknown scope requires a new preview and approval. Stop without approval. Default to offline operation: do not transmit project data, contact endpoints, or install dependencies without separate scope-bound approval. Commands and tests can spawn processes and access files or networks; they are not sandboxed. If effects or targets are unknown, stop and ask rather than assume safety. Instructions are not a runtime permission boundary: never bypass core preflight. Explicit remote, production-like, or ambiguous database targets remain blocked even with approval. An undetected database target is unknown, not safe or absent; follow the CLI's explicit approval policy and honor any current preflight rejection. The generated-project harness exception never applies to this workflow.

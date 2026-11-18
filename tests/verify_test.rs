@@ -149,7 +149,7 @@ fn missing_approval_blocks_test_before_runner() {
 }
 
 #[test]
-fn unknown_or_remote_database_target_blocks_install_and_test_before_runner() {
+fn unknown_database_requires_approval_and_remote_database_stays_blocked() {
     let unknown = Fixture::new();
     unknown.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
     fs::remove_file(unknown.path().join(".env")).expect("remove fixture DB config");
@@ -160,11 +160,31 @@ fn unknown_or_remote_database_target_blocks_install_and_test_before_runner() {
         skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
-    let report = approved_run(unknown.path(), &options, &fake_runner(&seen, None, None))
-        .expect("unknown target report");
+    let denied = verify::run_with_approval(
+        unknown.path(),
+        &options,
+        &fake_runner(&seen, None, None),
+        &|_, _, target| {
+            assert!(target.unwrap().contains("not detected"));
+            false
+        },
+    )
+    .expect("unknown target report");
     assert!(seen.borrow().is_empty());
-    assert_eq!(report.count("blocked"), 2);
-    assert_eq!(report.status(), verify::OverallStatus::NoExecution);
+    assert_eq!(denied.count("blocked"), 2);
+    assert_eq!(denied.status(), verify::OverallStatus::NoExecution);
+    let approved = verify::run_with_approval(
+        unknown.path(),
+        &options,
+        &fake_runner(&seen, None, None),
+        &|_, _, target| {
+            assert!(target.unwrap().contains("not detected"));
+            true
+        },
+    )
+    .expect("approved unknown target report");
+    assert_eq!(approved.count("passed"), 2);
+    assert_eq!(seen.borrow().len(), 2);
 
     let remote = Fixture::new();
     remote.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
@@ -189,6 +209,38 @@ fn unknown_or_remote_database_target_blocks_install_and_test_before_runner() {
 }
 
 #[test]
+fn changed_database_scope_after_approval_blocks_before_runner() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
+    let options = Options {
+        path: fixture.path().to_path_buf(),
+        only: Some(Gate::Test),
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let report = verify::run_with_approval(
+        fixture.path(),
+        &options,
+        &fake_runner(&seen, None, None),
+        &|_, _, _| {
+            fixture.write(".env", "DB_HOST=remote.example\nDB_DATABASE=test\n");
+            true
+        },
+    )
+    .unwrap();
+    assert!(seen.borrow().is_empty());
+    assert_eq!(report.count("blocked"), 1);
+    assert!(
+        report.parts[0].outcomes[0]
+            .state
+            .detail()
+            .unwrap()
+            .contains("scope changed")
+    );
+}
+
+#[test]
 fn production_like_database_is_blocked_even_when_local_or_named_test() {
     let fixture = Fixture::new();
     fixture.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
@@ -210,6 +262,157 @@ fn production_like_database_is_blocked_even_when_local_or_named_test() {
     let detail = report.parts[0].outcomes[0].state.detail().unwrap();
     assert!(detail.contains("production-like"));
     assert!(!detail.contains("fixture-secret"));
+}
+
+#[test]
+fn install_blocks_remote_database_in_test_env_before_approval() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
+    fs::remove_file(fixture.path().join(".env")).unwrap();
+    fixture.write(
+        ".env.test.local",
+        "DB_HOST=remote.example\nDB_DATABASE=test\n",
+    );
+    let options = Options {
+        path: fixture.path().to_path_buf(),
+        only: Some(Gate::Install),
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let approvals = std::cell::Cell::new(0);
+    let report = verify::run_with_approval(
+        fixture.path(),
+        &options,
+        &fake_runner(&seen, None, None),
+        &|_, _, _| {
+            approvals.set(approvals.get() + 1);
+            true
+        },
+    )
+    .unwrap();
+    assert_eq!(report.count("blocked"), 1);
+    assert_eq!(approvals.get(), 0);
+    assert!(seen.borrow().is_empty());
+}
+
+#[test]
+fn empty_database_name_blocks_before_approval_or_runner() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
+    fixture.write(".env", "DB_HOST=localhost\nDB_DATABASE=\n");
+    let options = Options {
+        path: fixture.path().to_path_buf(),
+        only: Some(Gate::Test),
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let approvals = std::cell::Cell::new(0);
+    let report = verify::run_with_approval(
+        fixture.path(),
+        &options,
+        &fake_runner(&seen, None, None),
+        &|_, _, _| {
+            approvals.set(approvals.get() + 1);
+            true
+        },
+    )
+    .unwrap();
+    assert_eq!(report.count("blocked"), 1);
+    assert_eq!(approvals.get(), 0);
+    assert!(seen.borrow().is_empty());
+}
+
+#[test]
+fn ambiguous_database_settings_never_reach_approval_or_runner() {
+    for config in [
+        "DB_HOST=remote.example\nDB_HOST=localhost\nDB_DATABASE=test\n",
+        "DB_CONNECTION=unsupported\nDB_HOST=localhost\nDB_DATABASE=test\n",
+        "DB_HOST=localhost\nDB_DATABASE=${DATABASE_NAME}\n",
+        "DB_CONNECTION=sqlite\nDB_DATABASE=${DATABASE_PATH}\n",
+        "DB_CONNECTION=sqlite\nDB_DATABASE=\\\\server\\share\\test.db\n",
+        "DB_CONNECTION=sqlite\nDB_DATABASE=backup:memory:\n",
+        "DATABASE_URL=postgres://[::1]garbage/test\n",
+        "DATABASE_URL=postgres://localhost/test/other\n",
+        "DATABASE_URL=postgres://localhost:5432,remote.example:5432/test\n",
+        "DATABASE_URL=sqlite:\n",
+        "DATABASE_URL=\"sqlite::memory:\n",
+        "DATABASE_URL\n",
+    ] {
+        for gate in [Gate::Install, Gate::Test] {
+            let fixture = Fixture::new();
+            fixture.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
+            fixture.write(".env", config);
+            let options = Options {
+                path: fixture.path().to_path_buf(),
+                only: Some(gate),
+                security: false,
+                skip_install: false,
+            };
+            let seen = std::cell::RefCell::new(Vec::new());
+            let approvals = std::cell::Cell::new(0);
+            let report = verify::run_with_approval(
+                fixture.path(),
+                &options,
+                &fake_runner(&seen, None, None),
+                &|_, _, _| {
+                    approvals.set(approvals.get() + 1);
+                    true
+                },
+            )
+            .unwrap();
+            assert_eq!(report.count("blocked"), 1, "{config}");
+            assert_eq!(approvals.get(), 0);
+            assert!(seen.borrow().is_empty());
+        }
+    }
+}
+
+#[test]
+fn changed_npm_script_after_approval_blocks_before_runner() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"scripts":{"test":"first"}}"#);
+    let options = Options {
+        path: fixture.path().to_path_buf(),
+        only: Some(Gate::Test),
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let report = verify::run_with_approval(
+        fixture.path(),
+        &options,
+        &fake_runner(&seen, None, None),
+        &|_, _, _| {
+            fixture.write("package.json", r#"{"scripts":{"test":"changed"}}"#);
+            true
+        },
+    )
+    .unwrap();
+    assert_eq!(report.count("blocked"), 1);
+    assert!(seen.borrow().is_empty());
+}
+
+#[test]
+fn database_change_between_gate_commands_blocks_next_command() {
+    let fixture = Fixture::new();
+    fixture.write("go.mod", "module example.com/app\n");
+    let options = Options {
+        path: fixture.path().to_path_buf(),
+        only: Some(Gate::Install),
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let runner = |spec: &CommandSpec, _: &str| {
+        seen.borrow_mut().push(spec.display());
+        fixture.write(".env", "DB_HOST=remote.example\nDB_DATABASE=test\n");
+        Ok(())
+    };
+    let report = approved_run(fixture.path(), &options, &runner).unwrap();
+    assert_eq!(seen.borrow().as_slice(), ["go mod download"]);
+    assert_eq!(report.count("blocked"), 1);
 }
 
 #[test]

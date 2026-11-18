@@ -9,6 +9,21 @@ use std::path::Path;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // SAFETY: this binary is single-threaded at startup, before project code runs.
+    for key in [
+        "DATABASE_URL",
+        "DB_URL",
+        "DB_CONNECTION",
+        "DB_HOST",
+        "DB_DATABASE",
+        "PGHOST",
+        "PGDATABASE",
+        "PGHOSTADDR",
+        "PGSERVICE",
+        "PGSERVICEFILE",
+    ] {
+        unsafe { env::remove_var(key) };
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -80,7 +95,21 @@ fn verify_generated(root: &Path, frontend: &str, backend: &str) -> Result<(), St
     };
     // This harness created the disposable workspace and generated this project;
     // no caller-supplied path reaches this approval callback.
-    let report = verify::run_with_approval(root, &options, &verify::exec::run, &|_, _, _| true)?;
+    let report = verify::run_with_approval(
+        root,
+        &options,
+        &verify::exec::run_generated,
+        &|gate, part, target| {
+            println!(
+                "generated workspace is not a sandbox; network, hardcoded targets and filesystem remain accessible"
+            );
+            println!("  gate: {} in {}", gate.gate.name(), part.dir.display());
+            if let Some(target) = target {
+                println!("  database target: {target}");
+            }
+            true
+        },
+    )?;
     let stack = if backend == "none" { frontend } else { backend };
     if report.parts.is_empty() {
         return Err(format!(

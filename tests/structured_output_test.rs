@@ -1,6 +1,8 @@
 //! Structured output: `analyze --json`, `audit --json`, and the help text that
 //! documents both.
 
+mod common;
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -203,6 +205,7 @@ fn test_audit_structured_output_agrees_with_the_exported_report() {
         stderr.contains("Exported files") && stderr.contains("Audit_Report.md"),
         "the exported-files summary must move to stderr: {stderr}"
     );
+    assert!(stderr.contains("audit writes report files"), "{stderr}");
 }
 
 #[test]
@@ -335,7 +338,7 @@ fn export_rejects_unknown_format_and_missing_output_without_creating_files() {
     assert_eq!(scan_status, Some(0));
     let scan_file = fixture.write("scan.json", &scan_stdout);
 
-    let (_, unknown_stderr, unknown_status) = run(&[
+    let (unknown_stdout, unknown_stderr, unknown_status) = run(&[
         "export",
         scan_file.to_str().unwrap(),
         "--format",
@@ -344,6 +347,7 @@ fn export_rejects_unknown_format_and_missing_output_without_creating_files() {
         fixture.path(),
     ]);
     assert_eq!(unknown_status, Some(3));
+    assert!(unknown_stdout.is_empty(), "{unknown_stdout}");
     assert!(unknown_stderr.contains("unsupported export format"));
     assert!(!fixture.dir.join("Audit_Report.md").exists());
 
@@ -358,6 +362,78 @@ fn export_rejects_unknown_format_and_missing_output_without_creating_files() {
     ]);
     assert_eq!(missing_status, Some(3));
     assert!(missing_stderr.contains("output directory does not exist"));
+    assert!(!missing.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn export_reports_unwritable_output_without_claiming_success() {
+    use std::os::unix::fs::PermissionsExt;
+
+    struct RestorePermissions(PathBuf);
+    impl Drop for RestorePermissions {
+        fn drop(&mut self) {
+            let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o700));
+        }
+    }
+
+    let fixture = Fixture::new("unwritable-export");
+    let input = fixture.write(
+        "scan.json",
+        &serde_json::to_string(&canary_envelope()).unwrap(),
+    );
+    let output = fixture.dir.join("output");
+    fs::create_dir(&output).unwrap();
+    let _restore = RestorePermissions(output.clone());
+    fs::set_permissions(&output, fs::Permissions::from_mode(0o500)).unwrap();
+    let probe = output.join("write-probe");
+    if fs::write(&probe, b"probe").is_ok() {
+        fs::remove_file(probe).unwrap();
+        eprintln!("SKIPPED: current user can write despite directory permissions");
+        return;
+    }
+
+    let (stdout, stderr, status) = run(&[
+        "export",
+        input.to_str().unwrap(),
+        "--format",
+        "md",
+        "--output",
+        output.to_str().unwrap(),
+    ]);
+    assert_eq!(status, Some(3), "{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("export:"), "{stderr}");
+    assert!(!output.join("Audit_Report.md").exists());
+}
+
+#[test]
+fn audit_legacy_formats_json_warning_and_exit_codes() {
+    let fixture = Fixture::new("legacy-audit");
+    fixture.write(".gitignore", ".env\n");
+    let (stdout, stderr, status) =
+        run(&["audit", fixture.path(), "--export", "md,pdf,docx", "--json"]);
+    assert_eq!(status, Some(0), "{stderr}");
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("audit JSON only");
+    assert_eq!(
+        json["exported_files"],
+        serde_json::json!(["Audit_Report.md", "Audit_Report.pdf", "Audit_Report.docx"])
+    );
+    assert!(stderr.contains("audit writes report files"), "{stderr}");
+    for name in ["Audit_Report.md", "Audit_Report.pdf", "Audit_Report.docx"] {
+        assert!(fixture.dir.join(name).is_file(), "missing {name}");
+    }
+
+    let (stdout, stderr, status) = run(&["audit", fixture.path(), "--export", "invalid"]);
+    assert_eq!(status, Some(2), "{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("unsupported export format"), "{stderr}");
+
+    let missing = fixture.dir.join("missing");
+    let (stdout, stderr, status) = run(&["audit", missing.to_str().unwrap(), "--export", "md"]);
+    assert_eq!(status, Some(3), "{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("Audit failed"), "{stderr}");
     assert!(!missing.exists());
 }
 
@@ -598,4 +674,119 @@ fn test_help_documents_the_structured_output_options() {
             "audit help is missing {expected}:\n{audit_help}"
         );
     }
+}
+
+#[test]
+fn generated_ai_types_match_written_files_and_keep_overlaps() {
+    let fixture = Fixture::new("ai-result");
+    let selection = ["agents-md", "codex", "claude-code", "antigravity"]
+        .map(str::to_owned)
+        .to_vec();
+    let expected = snipe_code::ai_tools::plan_selected(&selection).unwrap();
+    let output = Command::new(BIN)
+        .args([
+            "new",
+            "--name",
+            "app",
+            "--ai-tools",
+            "agents-md,codex,claude-code,antigravity",
+            "--json",
+        ])
+        .current_dir(&fixture.dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let artifacts = json["ai_artifact_types"]
+        .as_array()
+        .expect("artifact types");
+    assert_eq!(artifacts.len(), expected.artifacts.len());
+    for (actual, planned) in artifacts.iter().zip(&expected.artifacts) {
+        assert_eq!(actual["tool"], planned.tool);
+        assert_eq!(actual["path"], planned.path);
+        assert_eq!(actual["kind"], planned.kind);
+        assert!(fixture.dir.join("app").join(&planned.path).is_file());
+        assert!(
+            json["ai_artifacts"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!(planned.path))
+        );
+    }
+    for kind in ["rule", "skill", "command", "workflow"] {
+        assert!(artifacts.iter().any(|a| a["kind"] == kind), "{kind}");
+    }
+    assert!(json["ai_overlaps"].as_array().unwrap().iter().any(|o| {
+        let text = o.as_str().unwrap();
+        text.contains("AGENTS.md") && text.contains("codex")
+    }));
+}
+
+#[test]
+fn dry_run_json_has_no_written_ai_artifact_types() {
+    let fixture = Fixture::new("ai-dry-result");
+    let output = Command::new(BIN)
+        .args([
+            "new",
+            "--name",
+            "app",
+            "--ai-tools",
+            "claude-code",
+            "--dry-run",
+            "--json",
+        ])
+        .current_dir(&fixture.dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ai_artifact_types"], serde_json::json!([]));
+    assert!(!fixture.dir.join("app").exists());
+}
+
+#[test]
+fn generator_exposes_ai_types_with_overlap() {
+    let workspace = common::Workspace::new("ai-result-library");
+    let selection = ["agents-md", "codex", "claude-code", "antigravity"]
+        .map(str::to_owned)
+        .to_vec();
+    let expected = snipe_code::ai_tools::plan_selected(&selection).unwrap();
+    let config = snipe_code::generator::GenerateConfig {
+        project_name: "app".into(),
+        template_id: "none".into(),
+        frontend: "nextjs".into(),
+        backend: "none".into(),
+        database: "none".into(),
+        ai_tools: selection,
+    };
+    let result = snipe_code::generator::generate(&config, false).unwrap();
+    assert_eq!(result.ai_artifact_types.len(), expected.artifacts.len());
+    for (actual, planned) in result.ai_artifact_types.iter().zip(&expected.artifacts) {
+        assert_eq!(
+            (&actual.tool, &actual.path, &actual.kind),
+            (&planned.tool, &planned.path, &planned.kind)
+        );
+        assert!(result.ai_artifacts.contains(&actual.path));
+        assert!(workspace.dir.join("app").join(&actual.path).is_file());
+    }
+    let json = serde_json::to_value(&result.ai_artifact_types).unwrap();
+    assert_eq!(json[0]["tool"], result.ai_artifact_types[0].tool);
+    assert_eq!(json[0]["path"], result.ai_artifact_types[0].path);
+    assert_eq!(json[0]["kind"], result.ai_artifact_types[0].kind);
+    assert!(
+        result
+            .ai_overlaps
+            .iter()
+            .any(|o| o.contains("AGENTS.md") && o.contains("codex"))
+    );
 }

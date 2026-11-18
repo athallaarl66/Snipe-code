@@ -3,6 +3,7 @@
 
 pub mod detect;
 pub mod exec;
+pub mod report;
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -386,18 +387,43 @@ pub fn run_with_approval(
 }
 
 fn approve_interactively(plan: &GatePlan, part: &PartPlan, database_target: Option<&str>) -> bool {
-    println!(
+    approve_interactively_to(plan, part, database_target, false)
+}
+
+/// CLI approval callback for invocations whose stdout must remain machine-readable.
+pub fn approve_interactively_stderr(
+    plan: &GatePlan,
+    part: &PartPlan,
+    database_target: Option<&str>,
+) -> bool {
+    approve_interactively_to(plan, part, database_target, true)
+}
+
+fn approve_interactively_to(
+    plan: &GatePlan,
+    part: &PartPlan,
+    database_target: Option<&str>,
+    stderr: bool,
+) -> bool {
+    let line = |text: String| {
+        if stderr {
+            eprintln!("{text}");
+        } else {
+            println!("{text}");
+        }
+    };
+    line(format!(
         "Preflight: {} gate in {}",
         plan.gate.name(),
         part.dir.display()
-    );
+    ));
     for command in &plan.commands {
-        println!("  command: {}", command.display());
-        println!("  cwd: {}", command.dir.display());
+        line(format!("  command: {}", command.display()));
+        line(format!("  cwd: {}", command.dir.display()));
     }
-    println!("  effects: {}", gate_effects(plan.gate));
+    line(format!("  effects: {}", gate_effects(plan.gate)));
     if let Some(target) = database_target {
-        println!("  database target: {target}");
+        line(format!("  database target: {target}"));
     }
     if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         return false;
@@ -420,14 +446,35 @@ fn gate_effects(gate: Gate) -> &'static str {
     }
 }
 
-fn classify_database_target(directory: &Path, gate: Gate) -> Result<String, String> {
+fn classify_database_target(
+    directory: &Path,
+    _gate: Gate,
+) -> Result<(String, BTreeMap<String, String>), String> {
     let mut settings = BTreeMap::new();
-    for name in [".env", ".env.test", ".env.testing"] {
-        if gate == Gate::Install && name != ".env" {
-            continue;
-        }
-        if let Ok(text) = fs::read_to_string(directory.join(name)) {
-            settings.extend(parse_env(&text));
+    for name in [
+        ".env",
+        ".env.local",
+        ".env.test",
+        ".env.test.local",
+        ".env.testing",
+        ".env.testing.local",
+    ] {
+        match fs::read_to_string(directory.join(name)) {
+            Ok(text) => {
+                for (key, value) in parse_env(&text)? {
+                    if settings
+                        .get(&key)
+                        .is_some_and(|existing| existing != &value)
+                    {
+                        return Err("conflicting database settings; gate blocked".to_string());
+                    }
+                    settings.insert(key, value);
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => {
+                return Err("database configuration could not be read; gate blocked".to_string());
+            }
         }
     }
     let environment: BTreeMap<_, _> = std::env::vars_os()
@@ -436,26 +483,52 @@ fn classify_database_target(directory: &Path, gate: Gate) -> Result<String, Stri
             is_database_setting(&key).then(|| (key, value.to_string_lossy().into_owned()))
         })
         .collect();
-    settings.extend(environment);
-    classify_settings(directory, &settings)
+    for (key, value) in environment {
+        // Process environment is inherited by the gate and overrides values
+        // from dotenv files, so classify the effective value for each key.
+        settings.insert(key, value);
+    }
+    let target = classify_settings(directory, &settings)?;
+    Ok((target, settings))
 }
 
-fn parse_env(text: &str) -> BTreeMap<String, String> {
-    text.lines()
-        .filter_map(|line| {
-            let (key, value) = line
-                .trim()
-                .strip_prefix("export ")
-                .unwrap_or(line.trim())
-                .split_once('=')?;
-            let key = key.trim();
-            if !is_database_setting(key) {
-                return None;
+fn parse_env(text: &str) -> Result<BTreeMap<String, String>, String> {
+    let mut settings = BTreeMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        let (key, value) = match line.split_once('=') {
+            Some(pair) => pair,
+            None if is_database_setting(line.trim()) => {
+                return Err("invalid database configuration; gate blocked".to_string());
             }
-            let value = value.trim().trim_matches(['\'', '"']);
-            Some((key.to_string(), value.to_string()))
-        })
-        .collect()
+            None => continue,
+        };
+        let key = key.trim();
+        if !is_database_setting(key) {
+            continue;
+        }
+        let value = value.trim();
+        let value = if value.starts_with('"') || value.starts_with('\'') {
+            let quote = value.chars().next().unwrap();
+            if value.len() < 2 || !value.ends_with(quote) {
+                return Err("invalid database configuration; gate blocked".to_string());
+            }
+            &value[1..value.len() - 1]
+        } else {
+            value
+        };
+        if settings
+            .insert(key.to_string(), value.to_string())
+            .is_some()
+        {
+            return Err("duplicate database settings; gate blocked".to_string());
+        }
+    }
+    Ok(settings)
 }
 
 fn is_database_setting(key: &str) -> bool {
@@ -468,6 +541,9 @@ fn is_database_setting(key: &str) -> bool {
             | "DB_DATABASE"
             | "PGHOST"
             | "PGDATABASE"
+            | "PGHOSTADDR"
+            | "PGSERVICE"
+            | "PGSERVICEFILE"
     )
 }
 
@@ -475,14 +551,33 @@ fn classify_settings(
     directory: &Path,
     settings: &BTreeMap<String, String>,
 ) -> Result<String, String> {
+    if settings.is_empty() {
+        return Ok("not detected; database use and target remain unknown".to_string());
+    }
+    if settings.values().any(|value| value.contains('$')) {
+        return Err("database configuration is ambiguous; gate blocked".to_string());
+    }
+    if ["PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"]
+        .iter()
+        .any(|key| settings.contains_key(*key))
+    {
+        return Err("database routing configuration is ambiguous; gate blocked".to_string());
+    }
+    if settings.contains_key("DATABASE_URL") && settings.len() > 1
+        || settings.contains_key("DB_URL") && settings.len() > 1
+        || settings.contains_key("DB_HOST") && settings.contains_key("PGHOST")
+        || settings.contains_key("DB_DATABASE") && settings.contains_key("PGDATABASE")
+    {
+        return Err("conflicting database settings; gate blocked".to_string());
+    }
     if let Some(url) = settings
         .get("DATABASE_URL")
         .or_else(|| settings.get("DB_URL"))
     {
         if let Some(target) = url.strip_prefix("sqlite:") {
-            if target.starts_with("//")
-                || target.contains(['?', '#', '%', '$'])
+            if !valid_sqlite_target(target)
                 || looks_production(target)
+                || looks_production(&database_target_label(directory, target))
             {
                 return Err(
                     "SQLite target is ambiguous or production-like; gate blocked".to_string(),
@@ -506,6 +601,20 @@ fn classify_settings(
         return classify_host_database(&host, &database);
     }
 
+    if settings.get("DB_CONNECTION").is_some_and(|value| {
+        ![
+            "sqlite",
+            "mysql",
+            "mariadb",
+            "pgsql",
+            "postgres",
+            "postgresql",
+        ]
+        .iter()
+        .any(|supported| value.eq_ignore_ascii_case(supported))
+    }) {
+        return Err("database connection is ambiguous; gate blocked".to_string());
+    }
     if settings
         .get("DB_CONNECTION")
         .is_some_and(|value| value.eq_ignore_ascii_case("sqlite"))
@@ -521,8 +630,11 @@ fn classify_settings(
             .map(String::as_str)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| "SQLite target unknown; gate blocked".to_string())?;
-        if looks_production(database) {
-            return Err("production-like database target; gate blocked".to_string());
+        if !valid_sqlite_target(database)
+            || looks_production(database)
+            || looks_production(&database_target_label(directory, database))
+        {
+            return Err("SQLite target is ambiguous or production-like; gate blocked".to_string());
         }
         return Ok(format!(
             "local SQLite target {}",
@@ -541,6 +653,9 @@ fn classify_settings(
 }
 
 fn classify_host_database(host: &str, database: &str) -> Result<String, String> {
+    if database.trim().is_empty() {
+        return Err("database target unknown; gate blocked".to_string());
+    }
     if looks_production(host) || looks_production(database) {
         return Err("production-like database target; gate blocked".to_string());
     }
@@ -553,8 +668,30 @@ fn classify_host_database(host: &str, database: &str) -> Result<String, String> 
     Ok(format!("local database {database} at {host}"))
 }
 
+fn valid_sqlite_target(target: &str) -> bool {
+    if target == ":memory:" {
+        return true;
+    }
+    if target.trim().is_empty()
+        || target.starts_with("//")
+        || target.starts_with("\\\\")
+        || target.contains(['?', '#', '%', '$'])
+    {
+        return false;
+    }
+    let rest = if target.as_bytes().get(1) == Some(&b':')
+        && target.as_bytes()[0].is_ascii_alphabetic()
+        && matches!(target.as_bytes().get(2), Some(b'/' | b'\\'))
+    {
+        &target[2..]
+    } else {
+        target
+    };
+    !rest.contains(':')
+}
+
 fn database_target_label(directory: &Path, target: &str) -> String {
-    if target == ":memory:" || target.ends_with(":memory:") {
+    if target == ":memory:" {
         return ":memory:".to_string();
     }
     let path = Path::new(target);
@@ -575,20 +712,28 @@ fn parse_database_url(url: &str) -> Option<(String, String)> {
     let authority_and_path = rest.split(['?', '#']).next()?;
     let (authority, path) = authority_and_path.split_once('/')?;
     let authority = authority.rsplit('@').next()?;
-    let host = if authority.starts_with('[') {
-        authority
-            .split(']')
-            .next()?
-            .trim_start_matches('[')
-            .to_string()
+    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
+        let (host, suffix) = rest.split_once(']')?;
+        let port = if suffix.is_empty() {
+            None
+        } else {
+            Some(suffix.strip_prefix(':')?)
+        };
+        (host, port)
     } else {
-        authority.split(':').next()?.to_string()
+        match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        }
     };
-    let database = path.split('/').next()?.to_string();
-    if host.is_empty() || database.is_empty() {
+    if host.is_empty()
+        || path.is_empty()
+        || path.contains('/')
+        || port.is_some_and(|value| value.parse::<u16>().ok().filter(|port| *port > 0).is_none())
+    {
         return None;
     }
-    Some((host, database))
+    Some((host.to_string(), path.to_string()))
 }
 
 fn looks_production(value: &str) -> bool {
@@ -653,18 +798,83 @@ fn execute(
             } else {
                 None
             };
-            if !approval(planned, plan, database_target.as_deref()) {
+            // npm scripts are indirect commands: the displayed `npm run test`
+            // does not reveal when the underlying script changes.
+            let npm_manifest = if plan.ecosystem == "npm" {
+                match fs::read(plan.dir.join("package.json")) {
+                    Ok(bytes) => Some(bytes),
+                    Err(_) => {
+                        outcomes.push(GateOutcome {
+                            gate,
+                            state: GateState::Blocked(
+                                "command scope could not be read".to_string(),
+                            ),
+                            command,
+                        });
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+            if !approval(
+                planned,
+                plan,
+                database_target.as_ref().map(|(label, _)| label.as_str()),
+            ) {
                 outcomes.push(GateOutcome {
                     gate,
                     state: GateState::Blocked(
-                        "explicit approval for this exact scope was not granted".to_string(),
+                        if database_target
+                            .as_ref()
+                            .is_some_and(|(target, _)| target.contains("not detected"))
+                        {
+                            "database target unknown; explicit approval was not granted".to_string()
+                        } else {
+                            "explicit approval for this exact scope was not granted".to_string()
+                        },
                     ),
                     command,
                 });
                 continue;
             }
+            if let Some((_, approved_settings)) = &database_target {
+                match classify_database_target(&plan.dir, gate) {
+                    Ok((_, current_settings)) if current_settings == *approved_settings => {}
+                    _ => {
+                        outcomes.push(GateOutcome {
+                            gate,
+                            state: GateState::Blocked(
+                                "database scope changed after approval; gate blocked".to_string(),
+                            ),
+                            command,
+                        });
+                        continue;
+                    }
+                }
+            }
             let mut state = GateState::Passed;
             for spec in &planned.commands {
+                let current = detect::plan(&plan.root, gate == Gate::Security);
+                let scope_matches = current.iter().any(|part| {
+                    part.dir == plan.dir
+                        && part.ecosystem == plan.ecosystem
+                        && part.gates.iter().any(|candidate| candidate == planned)
+                });
+                let database_matches = database_target.as_ref().is_none_or(|(_, settings)| {
+                    classify_database_target(&plan.dir, gate)
+                        .is_ok_and(|(_, current)| current == *settings)
+                });
+                let manifest_matches = npm_manifest.as_ref().is_none_or(|approved| {
+                    fs::read(plan.dir.join("package.json"))
+                        .is_ok_and(|current| current == *approved)
+                });
+                if !scope_matches || !database_matches || !manifest_matches {
+                    state = GateState::Blocked(
+                        "scope changed after approval; gate blocked".to_string(),
+                    );
+                    break;
+                }
                 match runner(spec, &label) {
                     Ok(()) => {}
                     Err(RunError::Failed(message)) => {
@@ -748,6 +958,14 @@ pub fn render_json(report: &Report) -> Result<String, String> {
         "root": report.root,
         "status": report.status().name(),
         "exit_code": exit_status(report),
+        "counts": {
+            "passed": report.count("passed"),
+            "failed": report.count("failed"),
+            "blocked": report.count("blocked"),
+            "unavailable": report.count("unavailable"),
+            "not-applicable": report.count("not-applicable"),
+            "executed": report.executed(),
+        },
         "parts": parts,
     }))
     .map_err(|error| error.to_string())
@@ -777,6 +995,59 @@ mod database_safety_tests {
     use super::*;
 
     #[test]
+    fn absent_settings_are_distinct_from_conflicting_settings() {
+        let absent = classify_settings(Path::new("."), &BTreeMap::new()).unwrap();
+        assert!(absent.contains("not detected"));
+
+        let conflicting = BTreeMap::from([
+            (
+                "DATABASE_URL".to_string(),
+                "postgres://user:secret@localhost/test".to_string(),
+            ),
+            ("DB_HOST".to_string(), "remote.example".to_string()),
+        ]);
+        let reason = classify_settings(Path::new("."), &conflicting).unwrap_err();
+        assert!(reason.contains("conflicting"));
+        assert!(!reason.contains("secret"));
+    }
+
+    #[test]
+    fn unreadable_database_settings_are_blocked() {
+        let root = std::env::temp_dir().join(format!("snipe-env-invalid-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join(".env"), [0xff]).unwrap();
+        let error = classify_database_target(&root, Gate::Test).unwrap_err();
+        assert!(error.contains("could not be read"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn conflicting_env_files_and_libpq_routing_are_blocked() {
+        let root = std::env::temp_dir().join(format!("snipe-db-conflict-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join(".env.test"),
+            "DB_HOST=remote.example\nDB_DATABASE=test\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join(".env.testing"),
+            "DB_HOST=localhost\nDB_DATABASE=test\n",
+        )
+        .unwrap();
+        assert!(classify_database_target(&root, Gate::Test).is_err());
+        fs::remove_dir_all(root).unwrap();
+        for key in ["PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"] {
+            let settings = BTreeMap::from([
+                ("PGHOST".to_string(), "localhost".to_string()),
+                ("PGDATABASE".to_string(), "test".to_string()),
+                (key.to_string(), "remote".to_string()),
+            ]);
+            assert!(classify_settings(Path::new("."), &settings).is_err());
+        }
+    }
+
+    #[test]
     fn unsupported_database_url_scheme_is_blocked() {
         let settings = BTreeMap::from([(
             "DATABASE_URL".to_string(),
@@ -801,6 +1072,20 @@ mod database_safety_tests {
             ("DB_DATABASE".to_string(), "productiontest".to_string()),
         ]);
         assert!(classify_settings(Path::new("."), &settings).is_err());
+    }
+
+    #[test]
+    fn sqlite_production_path_is_blocked_after_resolution() {
+        let root = std::env::temp_dir().join(format!("snipe-sqlite-scope-{}", std::process::id()));
+        let production = root.join("production");
+        fs::create_dir_all(&production).unwrap();
+        fs::write(production.join("test.db"), b"").unwrap();
+        let settings = BTreeMap::from([
+            ("DB_CONNECTION".to_string(), "sqlite".to_string()),
+            ("DB_DATABASE".to_string(), "test.db".to_string()),
+        ]);
+        assert!(classify_settings(&production, &settings).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -1,7 +1,7 @@
 {
   "id": "blog",
-  "name": "Blog / Posts",
-  "description": "Content management with MDX support",
+  "name": "Blog",
+  "description": "Adds MDX folders, a sample post, and a static RSS sample.",
   "icon": "📝",
   "structure": {
     "folders": [

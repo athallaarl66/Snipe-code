@@ -47,6 +47,46 @@ fn run(args: &[&str]) -> (String, Option<i32>) {
     (text, out.status.code())
 }
 
+fn run_output(args: &[&str], dir: &PathBuf) -> (String, String, Option<i32>) {
+    let out = Command::new(BIN)
+        .args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("failed to run snipe-code");
+    (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+        out.status.code(),
+    )
+}
+
+fn run_verify_json(dir: &PathBuf, env: &[(&str, &str)]) -> std::process::Output {
+    let mut command = Command::new(BIN);
+    command
+        .args(["verify", ".", "--only", "test", "--json"])
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null());
+    for key in [
+        "DATABASE_URL",
+        "DB_URL",
+        "DB_CONNECTION",
+        "DB_HOST",
+        "DB_DATABASE",
+        "PGHOST",
+        "PGDATABASE",
+        "PGHOSTADDR",
+        "PGSERVICE",
+        "PGSERVICEFILE",
+    ] {
+        command.env_remove(key);
+    }
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    command.output().expect("run verify preflight")
+}
+
 #[test]
 fn main_help_lists_verify() {
     let (stdout, status) = run(&["help"]);
@@ -65,10 +105,10 @@ fn per_command_help_documents_options_and_exit_status() {
         "--security",
         "--no-install",
         "--json",
-        "KEAMANAN",
+        "SAFETY",
         "blocked",
         "EXIT STATUS",
-        "4   hasil parsial",
+        "4   incomplete",
         "not-applicable",
         "audit",
     ] {
@@ -138,6 +178,237 @@ fn no_install_with_only_install_is_rejected_by_the_cli() {
 }
 
 #[test]
+fn report_export_writes_json_and_keeps_stdout_to_report_path() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "package.json",
+        r#"{"name":"app","scripts":{"test":"echo test"}}"#,
+    );
+    let (stdout, stderr, status) = run_output(
+        &[
+            "verify",
+            ".",
+            "--only",
+            "test",
+            "--report",
+            "json",
+            "--output",
+            "verify.json",
+        ],
+        &fixture.path,
+    );
+    assert_eq!(status, Some(3), "{stdout}\n{stderr}");
+    assert_eq!(stdout.trim(), "verify.json");
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(fixture.path.join("verify.json")).unwrap()).unwrap();
+    assert_eq!(report["exit_code"], 3);
+    assert_eq!(report["counts"]["blocked"], 1);
+    assert!(
+        report["parts"][0]["gates"][0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("database target unknown")
+    );
+}
+
+#[test]
+fn inherited_database_environment_overrides_dotenv_for_preflight() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "package.json",
+        r#"{"name":"app","scripts":{"test":"vitest run"}}"#,
+    );
+    fixture.write(
+        ".env",
+        "DB_HOST=db.production.example\nDB_DATABASE=app_test\nDB_PASSWORD=dotenv-secret-canary\n",
+    );
+    let output = run_verify_json(&fixture.path, &[("DB_HOST", "localhost")]);
+    assert_eq!(output.status.code(), Some(3));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(report["counts"]["blocked"], 1);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("database target: local database app_test at localhost"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("db.production.example"), "{stderr}");
+    assert!(!stderr.contains("dotenv-secret-canary"), "{stderr}");
+
+    fixture.write(
+        ".env",
+        "DB_HOST=localhost\nDB_DATABASE=app_test\nDB_PASSWORD=dotenv-secret-canary\n",
+    );
+    let output = run_verify_json(&fixture.path, &[("DB_HOST", "db.remote.example")]);
+    assert_eq!(output.status.code(), Some(3));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(report["counts"]["blocked"], 1);
+    assert!(
+        report["parts"][0]["gates"][0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("remote")
+    );
+    assert!(!stdout.contains("db.remote.example"), "{stdout}");
+    assert!(!stdout.contains("dotenv-secret-canary"), "{stdout}");
+}
+
+#[test]
+fn database_url_credentials_and_ambiguous_values_never_reach_reports() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "package.json",
+        r#"{"name":"app","scripts":{"test":"vitest run"}}"#,
+    );
+    for config in [
+        "DATABASE_URL=postgres://user-canary:password-canary@localhost/app_test\n",
+        "DATABASE_URL=opaque-secret-canary-value\n",
+    ] {
+        fixture.write(".env", config);
+        let output = run_verify_json(&fixture.path, &[]);
+        assert_eq!(output.status.code(), Some(3));
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let _: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        for canary in ["user-canary", "password-canary", "secret-canary"] {
+            assert!(!stdout.contains(canary), "{stdout}");
+            assert!(!stderr.contains(canary), "{stderr}");
+        }
+    }
+}
+
+#[test]
+fn noninteractive_cli_does_not_spawn_project_commands_without_approval() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "package.json",
+        r#"{"name":"app","scripts":{"test":"echo test"}}"#,
+    );
+    let shim = fixture.path.join("shim");
+    fs::create_dir(&shim).unwrap();
+    #[cfg(windows)]
+    fs::write(
+        shim.join("npm.cmd"),
+        "@echo off\r\necho ran>executed-canary\r\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let script = shim.join("npm");
+        fs::write(&script, "#!/bin/sh\nprintf ran > executed-canary\n").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let separator = if cfg!(windows) { ";" } else { ":" };
+    let path = format!(
+        "{}{}{}",
+        shim.display(),
+        separator,
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let output = run_verify_json(&fixture.path, &[("PATH", &path)]);
+    assert_eq!(output.status.code(), Some(3));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["counts"]["blocked"], 1);
+    assert!(!fixture.path.join("executed-canary").exists());
+}
+
+#[test]
+fn verify_generated_rejects_caller_supplied_project_paths() {
+    let fixture = Fixture::new();
+    fixture.write("generated-canary.txt", "keep");
+    let output = Command::new(env!("CARGO_BIN_EXE_verify-generated"))
+        .args(["--path", fixture.path.to_str().unwrap()])
+        .output()
+        .expect("run verify-generated");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unknown option --path"), "{stderr}");
+    assert_eq!(
+        fs::read_to_string(fixture.path.join("generated-canary.txt")).unwrap(),
+        "keep"
+    );
+}
+
+#[test]
+fn generated_harness_preflight_uses_child_database_environment() {
+    let fixture = Fixture::new();
+    let shim = fixture.path.join("shim");
+    fs::create_dir(&shim).unwrap();
+    #[cfg(windows)]
+    fs::write(
+        shim.join("npm.cmd"),
+        "@echo off\r\nif \"%1\"==\"install\" (echo DB_HOST=remote.example>.env & echo DB_DATABASE=test>>.env)\r\nif \"%2\"==\"test\" echo ran>\"%SNIPE_TEST_MARKER%\"\r\nexit /b 0\r\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let script = shim.join("npm");
+        fs::write(&script, "#!/bin/sh\nif [ \"$1\" = install ]; then printf 'DB_HOST=remote.example\\nDB_DATABASE=test\\n' > .env; fi\nif [ \"$2\" = test ]; then printf ran > \"$SNIPE_TEST_MARKER\"; fi\nexit 0\n").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let path = std::env::join_paths(
+        std::iter::once(shim).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+    let marker = fixture.path.join("executed-canary");
+    let output = Command::new(env!("CARGO_BIN_EXE_verify-generated"))
+        .args(["--frontend", "react-vite"])
+        .current_dir(&fixture.path)
+        .env("PATH", path)
+        .env("DB_HOST", "localhost")
+        .env("DB_DATABASE", "test")
+        .env("SNIPE_TEST_MARKER", &marker)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!output.status.success(), "{stdout}");
+    assert!(
+        stdout.contains("remote or ambiguous database host"),
+        "{stdout}"
+    );
+    assert!(!marker.exists());
+}
+
+#[test]
+fn report_argument_errors_exit_before_gates() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "package.json",
+        r#"{"name":"app","scripts":{"test":"echo test"}}"#,
+    );
+    let (stdout, stderr, status) = run_output(
+        &["verify", ".", "--report", "pdf", "--output", "report.pdf"],
+        &fixture.path,
+    );
+    assert_eq!(status, Some(2), "{stdout}\n{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("json, junit, or md"), "{stderr}");
+    assert!(!fixture.path.join("report.pdf").exists());
+}
+
+#[test]
+fn report_write_failure_is_runtime_error_on_stderr() {
+    let fixture = Fixture::new();
+    let (stdout, stderr, status) = run_output(
+        &[
+            "verify",
+            ".",
+            "--report",
+            "json",
+            "--output",
+            "missing/report.json",
+        ],
+        &fixture.path,
+    );
+    assert_eq!(status, Some(3), "{stdout}\n{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("cannot write"), "{stderr}");
+}
+
+#[test]
 fn readme_documents_verify_and_its_exit_status_contract() {
     let readme = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("README.md");
     let text = fs::read_to_string(&readme).expect("read README");
@@ -145,6 +416,11 @@ fn readme_documents_verify_and_its_exit_status_contract() {
         "snipe-code verify",
         "--only",
         "--security",
+        "--report json",
+        "--report junit",
+        "--report md",
+        "--output",
+        "--overwrite",
         "not-applicable",
         "unavailable",
         "tidak ada gate yang dijalankan",

@@ -52,8 +52,64 @@ fn is_within_root(root: &Path, candidate: &Path) -> bool {
     fs::canonicalize(candidate).is_ok_and(|resolved| resolved.starts_with(root))
 }
 
+#[cfg(test)]
+mod root_boundary_tests {
+    use super::is_within_root;
+    use std::fs;
+
+    #[test]
+    fn canonical_boundary_rejects_sibling_and_parent_escape() {
+        let base =
+            std::env::temp_dir().join(format!("snipe-audit-boundary-{}", std::process::id()));
+        fs::create_dir(&base).unwrap();
+        let root = base.join("project");
+        let sibling = base.join("project-other");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&sibling).unwrap();
+        fs::write(root.join("inside.js"), "inside").unwrap();
+        fs::write(sibling.join("outside.js"), "outside").unwrap();
+        assert!(is_within_root(&root, &root.join("inside.js")));
+        assert!(!is_within_root(&root, &sibling.join("outside.js")));
+        assert!(!is_within_root(
+            &root,
+            &root.join("../project-other/outside.js")
+        ));
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
+fn is_safe_entry(root: &Path, candidate: &Path) -> bool {
+    use std::path::Component;
+
+    let Ok(relative) = candidate.strip_prefix(root) else {
+        return false;
+    };
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(name) = component else {
+            return false;
+        };
+        current.push(name);
+        let Ok(metadata) = fs::symlink_metadata(&current) else {
+            return false;
+        };
+        if metadata.file_type().is_symlink() {
+            return false;
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                return false;
+            }
+        }
+    }
+    is_within_root(root, candidate)
+}
+
 pub(crate) fn read_within_root(root: &Path, file: &Path) -> Option<String> {
-    if !is_within_root(root, file) {
+    if !is_safe_entry(root, file) {
         return None;
     }
     fs::read_to_string(file).ok()
@@ -61,7 +117,7 @@ pub(crate) fn read_within_root(root: &Path, file: &Path) -> Option<String> {
 
 pub(crate) fn read_bounded_within_root(root: &Path, file: &Path, max_bytes: u64) -> Option<String> {
     use std::io::Read;
-    if !is_within_root(root, file) || fs::symlink_metadata(file).ok()?.file_type().is_symlink() {
+    if !is_safe_entry(root, file) {
         return None;
     }
     let mut bytes = Vec::new();
@@ -95,25 +151,30 @@ fn is_link_or_unverified(entry: &fs::DirEntry) -> bool {
         .unwrap_or(true)
 }
 
-/// Tampilkan MultiSelect interaktif untuk memilih format export audit.
-/// Markdown pre-selected. Loop sampai minimal satu format dipilih.
-pub fn select_export_formats() -> Vec<String> {
+/// Select audit report formats; cancellation leaves the target unchanged.
+pub fn select_export_formats() -> Result<Option<Vec<String>>, String> {
     let options = ["Markdown (.md)", "PDF (.pdf)", "DOCX (.docx)"];
     let ids = ["md", "pdf", "docx"];
 
     loop {
         let picked = MultiSelect::new()
-            .with_prompt("Pilih format export (spasi = pilih, Enter = lanjut)")
+            .with_prompt(
+                "Select report formats (arrows move, Space selects, Enter confirms, Esc cancels)",
+            )
             .items(&options)
             .defaults(&[true, false, false])
-            .interact()
-            .expect("Failed to read format selection");
+            .interact_opt()
+            .map_err(|error| format!("Failed to read format selection: {error}"))?;
+
+        let Some(picked) = picked else {
+            return Ok(None);
+        };
 
         if picked.is_empty() {
-            println!("Minimal satu format harus dipilih.");
+            println!("Select at least one report format.");
             continue;
         }
-        return picked.iter().map(|&i| ids[i].to_string()).collect();
+        return Ok(Some(picked.iter().map(|&i| ids[i].to_string()).collect()));
     }
 }
 
@@ -319,32 +380,35 @@ fn validate_formats(value: &str) -> Result<Vec<String>, String> {
 
 pub(crate) fn detect_scopes(path: &Path) -> Vec<String> {
     let mut scopes = vec!["common".to_string()];
-    if path.join("frontend/package.json").exists() {
+    if is_safe_entry(path, &path.join("frontend/package.json")) {
         scopes.push("frontend".to_string());
     }
-    if path.join("backend/go.mod").exists() {
+    if is_safe_entry(path, &path.join("backend/go.mod")) {
         scopes.push("backend:go".to_string());
     }
-    if path.join("backend/package.json").exists() {
+    if is_safe_entry(path, &path.join("backend/package.json")) {
         scopes.push("backend:node".to_string());
     }
-    if path.join("backend/pom.xml").exists() {
+    if is_safe_entry(path, &path.join("backend/pom.xml")) {
         scopes.push("backend:java".to_string());
     }
-    if fs::read_dir(path.join("backend"))
-        .map(|entries| {
-            entries.flatten().any(|entry| {
-                entry
-                    .path()
-                    .extension()
-                    .is_some_and(|extension| extension == "csproj")
+    if is_safe_entry(path, &path.join("backend"))
+        && fs::read_dir(path.join("backend"))
+            .map(|entries| {
+                entries.flatten().any(|entry| {
+                    !is_link_or_unverified(&entry)
+                        && is_safe_entry(path, &entry.path())
+                        && entry
+                            .path()
+                            .extension()
+                            .is_some_and(|extension| extension == "csproj")
+                })
             })
-        })
-        .unwrap_or(false)
+            .unwrap_or(false)
     {
         scopes.push("backend:dotnet".to_string());
     }
-    if path.join("backend/composer.json").exists() {
+    if is_safe_entry(path, &path.join("backend/composer.json")) {
         scopes.push("backend:php".to_string());
     }
     for manifest in find_named_files(
@@ -848,32 +912,63 @@ fn generate_markdown(findings: &[Finding], scopes: &[String]) -> String {
 // === EXPORT: PDF ===
 
 fn generate_pdf(findings: &[Finding], output_path: &Path, scopes: &[String]) -> Result<(), String> {
-    let (doc, page1, layer1) =
-        PdfDocument::new("Security Audit Report", Mm(210.0), Mm(297.0), "Layer 1");
-    let mut current_layer = doc.get_page(page1).get_layer(layer1);
+    let (doc, page, layer) =
+        PdfDocument::new("Security Audit Report", Mm(210.0), Mm(297.0), "Report");
+    let mut current_layer = doc.get_page(page).get_layer(layer);
+    let font = doc
+        .add_builtin_font(BuiltinFont::Courier)
+        .map_err(|error| error.to_string())?;
+    let mut y = 272.0;
 
-    let font = doc.add_builtin_font(BuiltinFont::Helvetica).unwrap();
-    let font_bold = doc.add_builtin_font(BuiltinFont::HelveticaBold).unwrap();
+    // Courier's fixed 0.6em advance keeps 70 characters at 11pt inside 20mm margins.
+    // ponytail: unsupported WinAnsi characters are escaped; embed a Unicode font for glyphs.
+    let mut write = |text: &str, size: f32| {
+        for input_line in text.split('\n') {
+            let mut visible = String::new();
+            for ch in input_line.chars() {
+                let encoded = printpdf::lopdf::Document::encode_text(
+                    Some("WinAnsiEncoding"),
+                    &ch.to_string(),
+                );
+                let decoded =
+                    printpdf::lopdf::Document::decode_text(Some("WinAnsiEncoding"), &encoded);
+                if decoded == ch.to_string() && !ch.is_control() {
+                    visible.push(ch);
+                } else {
+                    visible.push_str(&format!("\\u{{{:X}}}", ch as u32));
+                }
+            }
+            let chars: Vec<char> = visible.chars().collect();
+            for chunk in chars.chunks(70) {
+                if y < 30.0 {
+                    current_layer.use_text(
+                        "Report generated by SNIPE-CODE CLI",
+                        8.0,
+                        Mm(20.0),
+                        Mm(20.0),
+                        &font,
+                    );
+                    let (page, layer) = doc.add_page(Mm(210.0), Mm(297.0), "Report");
+                    current_layer = doc.get_page(page).get_layer(layer);
+                    y = 272.0;
+                }
+                current_layer.use_text(
+                    chunk.iter().collect::<String>(),
+                    size,
+                    Mm(20.0),
+                    Mm(y),
+                    &font,
+                );
+                y -= 6.0;
+            }
+        }
+    };
 
-    let mut y = 750.0;
-
-    // Title
-    current_layer.use_text("Security Audit Report", 24.0, Mm(20.0), Mm(y), &font_bold);
-    y -= 15.0;
-
-    // Metadata
-    current_layer.use_text("Generator: SNIPE-CODE CLI", 10.0, Mm(20.0), Mm(y), &font);
-    y -= 8.0;
-    current_layer.use_text(
-        format!("Date: {}", date::real_date_yyyymmdd()),
-        10.0,
-        Mm(20.0),
-        Mm(y),
-        &font,
-    );
-    y -= 8.0;
-    current_layer.use_text(
-        format!(
+    write("Security Audit Report", 11.0);
+    write("Generator: SNIPE-CODE CLI", 9.0);
+    write(&format!("Date: {}", date::real_date_yyyymmdd()), 9.0);
+    write(
+        &format!(
             "Contexts: {}",
             if scopes.is_empty() {
                 "unknown".to_string()
@@ -882,89 +977,33 @@ fn generate_pdf(findings: &[Finding], output_path: &Path, scopes: &[String]) -> 
             }
         ),
         9.0,
-        Mm(20.0),
-        Mm(y),
-        &font,
     );
-    y -= 8.0;
-    current_layer.use_text(
-        format!("Total Findings: {}", findings.len()),
-        10.0,
-        Mm(20.0),
-        Mm(y),
-        &font,
-    );
-    y -= 20.0;
-
-    // Summary
+    write(&format!("Total Findings: {}", findings.len()), 9.0);
     let high = findings.iter().filter(|f| f.severity == "HIGH").count();
     let medium = findings.iter().filter(|f| f.severity == "MEDIUM").count();
     let low = findings.iter().filter(|f| f.severity == "LOW").count();
-
-    current_layer.use_text("Summary", 16.0, Mm(20.0), Mm(y), &font_bold);
-    y -= 12.0;
-    current_layer.use_text(
-        format!("HIGH: {}  |  MEDIUM: {}  |  LOW: {}", high, medium, low),
-        10.0,
-        Mm(20.0),
-        Mm(y),
-        &font,
+    write("Summary", 11.0);
+    write(
+        &format!("HIGH: {high}  |  MEDIUM: {medium}  |  LOW: {low}"),
+        9.0,
     );
-    y -= 20.0;
-
-    // Findings
     if findings.is_empty() {
-        current_layer.use_text(
-            "No findings detected by evaluated rules",
-            14.0,
-            Mm(20.0),
-            Mm(y),
-            &font_bold,
-        );
-        y -= 12.0;
-        current_layer.use_text(
-            "Heuristic checks do not prove complete security.",
-            10.0,
-            Mm(20.0),
-            Mm(y),
-            &font,
-        );
+        write("No findings detected by evaluated rules", 11.0);
+        write("Heuristic checks do not prove complete security.", 9.0);
     } else {
-        current_layer.use_text("Findings", 16.0, Mm(20.0), Mm(y), &font_bold);
-        y -= 15.0;
-
+        write("Findings", 11.0);
         for (i, finding) in findings.iter().enumerate() {
-            if y < 50.0 {
-                let (page, layer) = doc.add_page(Mm(210.0), Mm(297.0), "Findings");
-                current_layer = doc.get_page(page).get_layer(layer);
-                y = 800.0;
-            }
-
-            let title = format!("{}. {} [{}]", i + 1, finding.category, finding.severity);
-            current_layer.use_text(&title, 11.0, Mm(20.0), Mm(y), &font_bold);
-            y -= 10.0;
-
-            current_layer.use_text(
-                format!("File: {} (line {})", finding.file, finding.line),
-                9.0,
-                Mm(25.0),
-                Mm(y),
-                &font,
+            write(
+                &format!("{}. {} [{}]", i + 1, finding.category, finding.severity),
+                11.0,
             );
-            y -= 8.0;
-
-            current_layer.use_text(
-                format!("Description: {}", finding.description),
+            write(
+                &format!("File: {} (line {})", finding.file, finding.line),
                 9.0,
-                Mm(25.0),
-                Mm(y),
-                &font,
             );
-            y -= 15.0;
+            write(&format!("Description: {}", finding.description), 9.0);
         }
     }
-
-    // Footer
     current_layer.use_text(
         "Report generated by SNIPE-CODE CLI",
         8.0,
@@ -972,11 +1011,9 @@ fn generate_pdf(findings: &[Finding], output_path: &Path, scopes: &[String]) -> 
         Mm(20.0),
         &font,
     );
-
-    let file = fs::File::create(output_path).map_err(|e| e.to_string())?;
-    let mut writer = BufWriter::new(file);
-    doc.save(&mut writer).map_err(|e| e.to_string())?;
-
+    let file = fs::File::create(output_path).map_err(|error| error.to_string())?;
+    doc.save(&mut BufWriter::new(file))
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 

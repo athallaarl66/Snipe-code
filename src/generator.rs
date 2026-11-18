@@ -14,12 +14,20 @@ pub struct GenerateConfig {
     pub ai_tools: Vec<String>,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct AiArtifactType {
+    pub tool: String,
+    pub path: String,
+    pub kind: String,
+}
+
 #[derive(Debug)]
 pub struct GenerateResult {
     pub folders: Vec<String>,
     pub files: Vec<String>,
     pub ai_tools: Vec<String>,
     pub ai_artifacts: Vec<String>,
+    pub ai_artifact_types: Vec<AiArtifactType>,
     pub ai_overlaps: Vec<String>,
 }
 
@@ -124,6 +132,41 @@ fn staging_dir(dest: &Path) -> Result<PathBuf, String> {
 /// (after successful staging). Existing symlinks/junctions are always rejected.
 pub fn generate(config: &GenerateConfig, overwrite: bool) -> Result<GenerateResult, String> {
     validate_project_name(&config.project_name)?;
+    crate::template::preflight_override()?;
+    crate::template::validate_relative(&config.template_id)?;
+    if let Some(template) = crate::template::TemplateRegistry::get(&config.template_id) {
+        for folder in &template.structure.folders {
+            crate::template::validate_relative(folder)?;
+        }
+        for file in &template.structure.files {
+            crate::template::validate_relative(&file.path)?;
+            crate::template::validate_relative(&file.template_source)?;
+        }
+    }
+    for folders in [
+        crate::stack::get_frontend_folders(&config.frontend),
+        crate::stack::get_backend_folders(&config.backend),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for folder in folders {
+            crate::template::validate_relative(&folder)?;
+        }
+    }
+    for files in [
+        crate::stack::get_frontend_files(&config.frontend),
+        crate::stack::get_backend_files(&config.backend),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for file in files {
+            crate::template::validate_relative(&file.path)?;
+        }
+    }
+    crate::ai_tools::plan_selected(&config.ai_tools)?;
+    crate::ai_tools::shared_content()?;
     let dest = resolve_destination(&config.project_name)?;
     if dest.exists() && !overwrite {
         return Err(format!(
@@ -159,6 +202,7 @@ fn write_all(root: &Path, config: &GenerateConfig) -> Result<GenerateResult, Str
         files: Vec::new(),
         ai_tools: Vec::new(),
         ai_artifacts: Vec::new(),
+        ai_artifact_types: Vec::new(),
         ai_overlaps: Vec::new(),
     };
 
@@ -253,6 +297,11 @@ fn write_all(root: &Path, config: &GenerateConfig) -> Result<GenerateResult, Str
     result.files.push(".ai-workspace/rules.md".to_string());
     result.files.push(".ai-workspace/rules.mdc".to_string());
     result.ai_artifacts = ai.artifacts.clone();
+    result.ai_artifact_types = ai
+        .artifact_types
+        .into_iter()
+        .map(|(tool, path, kind)| AiArtifactType { tool, path, kind })
+        .collect();
     result.files.extend(ai.artifacts);
     result.ai_tools = ai.tools;
     result.ai_overlaps = ai.overlaps;

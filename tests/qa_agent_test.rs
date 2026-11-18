@@ -7,7 +7,7 @@ const HOSTS: &[(&str, &str)] = &[
     ("claude-code", ".claude/skills/snipe-qa-planning/SKILL.md"),
     ("opencode", ".opencode/skills/snipe-qa-planning/SKILL.md"),
     ("hermes-agent", ".hermes/skills/snipe-qa-planning/SKILL.md"),
-    ("antigravity", ".agents/skills/snipe-qa-planning.md"),
+    ("antigravity", ".agents/skills/snipe-qa-planning/SKILL.md"),
 ];
 
 struct Workspace(PathBuf);
@@ -88,7 +88,7 @@ fn every_supported_host_renders_same_read_only_planning_and_approval_contract() 
             .find(|item| item.path == *path)
             .unwrap();
         let content = skill.content.replace("\r\n", "\n");
-        assert!(content.starts_with("---\nname: snipe-qa-planning\ndescription: "));
+        assert!(content.starts_with("---\nname: \"snipe-qa-planning\"\ndescription: \""));
         assert!(content.ends_with(&body));
         for required in [
             "user-selected requirements file",

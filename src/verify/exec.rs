@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::process::Stdio;
 
 /// A command and the directory it runs in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +53,60 @@ impl RunError {
 /// Runs one command, printing it first so the run can be repeated by hand.
 pub fn run(spec: &CommandSpec, label: &str) -> Result<(), RunError> {
     println!("  $ {}  (in {})", spec.display(), label);
-    match command(spec).status() {
+    run_command(spec)
+}
+
+/// Runs a gate while keeping its output off stdout, which is reserved for
+/// machine-readable CLI results.
+pub fn run_stderr(spec: &CommandSpec, label: &str) -> Result<(), RunError> {
+    eprintln!("  $ {}  (in {})", spec.display(), label);
+    match command(spec)
+        .stdout(Stdio::from(std::io::stderr()))
+        .status()
+    {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(RunError::Failed(format!(
+            "{} {:?} exited with {status}",
+            spec.program, spec.args
+        ))),
+        Err(error) => Err(RunError::Unavailable(format!(
+            "{} unavailable: {error}",
+            spec.program
+        ))),
+    }
+}
+
+/// Run a harness-owned generated project without inherited database targets.
+pub fn run_generated(spec: &CommandSpec, label: &str) -> Result<(), RunError> {
+    println!("  $ {}  (in {})", spec.display(), label);
+    run_process(&mut generated_command(spec), spec)
+}
+
+fn generated_command(spec: &CommandSpec) -> Command {
+    let mut child = command(spec);
+    for key in [
+        "DATABASE_URL",
+        "DB_URL",
+        "DB_CONNECTION",
+        "DB_HOST",
+        "DB_DATABASE",
+        "PGHOST",
+        "PGDATABASE",
+        "PGHOSTADDR",
+        "PGSERVICE",
+        "PGSERVICEFILE",
+    ] {
+        child.env_remove(key);
+    }
+    child
+}
+
+fn run_command(spec: &CommandSpec) -> Result<(), RunError> {
+    run_process(&mut command(spec), spec)
+}
+
+fn run_process(child: &mut Command, spec: &CommandSpec) -> Result<(), RunError> {
+    match child.status() {
         Ok(status) if status.success() => Ok(()),
         Ok(status) => Err(RunError::Failed(format!(
             "{} {:?} exited with {status}",
@@ -110,4 +164,34 @@ fn unique_suffix() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_command_removes_inherited_database_targets() {
+        let spec = CommandSpec::new("tool", &[], Path::new("."));
+        let command = generated_command(&spec);
+        let removed: Vec<_> = command
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(key, _)| key.to_string_lossy().into_owned())
+            .collect();
+        for key in [
+            "DATABASE_URL",
+            "DB_URL",
+            "DB_CONNECTION",
+            "DB_HOST",
+            "DB_DATABASE",
+            "PGHOST",
+            "PGDATABASE",
+            "PGHOSTADDR",
+            "PGSERVICE",
+            "PGSERVICEFILE",
+        ] {
+            assert!(removed.iter().any(|name| name == key), "{key}");
+        }
+    }
 }

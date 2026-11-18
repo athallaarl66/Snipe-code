@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::path::Path;
 
 use snipe_code::analyze;
@@ -7,39 +8,164 @@ use snipe_code::verify;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let code = std::process::exit;
+    dispatch(&args);
+}
 
+fn dispatch(args: &[String]) {
+    let code = std::process::exit;
     match args.get(1).map(|s| s.as_str()) {
-        // Tanpa command → wizard (backward compatible)
-        None => run_new_cmd(&args),
+        None => {
+            if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+                run_launcher();
+            } else {
+                usage_error(
+                    "Usage: snipe-code <command> [options]. Run 'snipe-code help' for commands.",
+                );
+            }
+        }
         Some("help") | Some("--help") | Some("-h") => match args.get(2) {
             Some(cmd) => print_command_help(cmd),
             None => print_help(),
         },
         Some("faq") => print_faq(),
         Some("version") | Some("--version") => println!("{}", env!("CARGO_PKG_VERSION")),
-        Some("new") => run_new_cmd(&args),
-        Some("analyze") => run_analyze_cmd(&args),
-        Some("audit") => run_audit_cmd(&args),
-        Some("scan") => run_scan_cmd(&args),
-        Some("quality") => run_quality_cmd(&args),
-        Some("qa") => run_qa_cmd(&args),
-        Some("advisory") => run_advisory_cmd(&args),
-        Some("export") => run_export_cmd(&args),
-        Some("history") => run_history_cmd(&args),
-        Some("verify") => run_verify_cmd(&args),
+        Some("new") => run_new_cmd(args),
+        Some("analyze") => run_analyze_cmd(args),
+        Some("audit") => run_audit_cmd(args),
+        Some("scan") => run_scan_cmd(args),
+        Some("quality") => run_quality_cmd(args),
+        Some("qa") => run_qa_cmd(args),
+        Some("advisory") => run_advisory_cmd(args),
+        Some("export") => run_export_cmd(args),
+        Some("history") => run_history_cmd(args),
+        Some("verify") => run_verify_cmd(args),
         // Backward compatible: snipe-code --dry-run
-        Some("--dry-run") => run_new_cmd(&args),
+        Some("--dry-run") => run_new_cmd(args),
         Some(other) if other.starts_with('-') => {
             println!("Unknown option: {}", other);
-            println!("Run 'snipe-code help' untuk daftar perintah.");
+            println!("Run 'snipe-code help' for the command list.");
             code(2);
         }
         Some(other) => {
             println!("Unknown command: {}", other);
-            println!("Run 'snipe-code help' untuk daftar perintah.");
+            println!("Run 'snipe-code help' for the command list.");
             code(2);
         }
+    }
+}
+
+const LAUNCHER_ITEMS: [&str; 6] = [
+    "Create a new project",
+    "Understand an existing project",
+    "Run tests and quality checks",
+    "Audit project security",
+    "View help",
+    "Exit",
+];
+
+fn select(prompt: &str, items: &[&str]) -> Option<usize> {
+    println!("Use arrow keys to choose, Enter to select, Esc to cancel.");
+    match dialoguer::Select::new()
+        .with_prompt(prompt)
+        .items(items)
+        .default(0)
+        .interact_opt()
+    {
+        Ok(choice) => choice,
+        Err(error) => {
+            eprintln!("Selection cancelled: {error}");
+            None
+        }
+    }
+}
+
+fn input(prompt: &str, default: Option<&str>) -> Option<String> {
+    let mut field = dialoguer::Input::<String>::new().with_prompt(prompt);
+    if let Some(value) = default {
+        field = field.default(value.to_owned());
+    }
+    match field.interact_text() {
+        Ok(value) => Some(value),
+        Err(error) => {
+            eprintln!("Input cancelled: {error}");
+            None
+        }
+    }
+}
+
+fn launch_command(command: &str, arguments: &[&str]) {
+    let mut args = vec!["snipe-code".to_owned(), command.to_owned()];
+    args.extend(arguments.iter().map(|arg| (*arg).to_owned()));
+    dispatch(&args);
+}
+
+fn run_launcher() {
+    loop {
+        match select("What would you like to do?", &LAUNCHER_ITEMS) {
+            Some(0) => launch_command("new", &[]),
+            Some(1) => launch_project_command("analyze"),
+            Some(2) => {
+                println!(
+                    "Verify runs declared commands and may modify files or use the network; it is not a sandbox. Future QA and quality-gate execution is unavailable."
+                );
+                launch_project_command("verify");
+            }
+            Some(3) => launch_security(),
+            Some(4) => launch_command("help", &[]),
+            Some(5) | None => return,
+            _ => unreachable!(),
+        }
+    }
+}
+
+fn launch_project_command(command: &str) {
+    if let Some(target) = input("Project path", Some(".")) {
+        println!("Target: {target}");
+        launch_command(command, &[&target]);
+    }
+}
+
+fn launch_security() {
+    let choices = [
+        "Scan project (read-only)",
+        "Export a saved scan JSON to a security report",
+        "View scan history",
+        "Legacy audit (writes reports into the target)",
+        "Back",
+    ];
+    match select("Security operation", &choices) {
+        Some(0) => launch_project_command("scan"),
+        Some(1) => {
+            println!("Export writes a security report to the specified directory.");
+            let Some(source) = input("Scan JSON path", None) else {
+                return;
+            };
+            let Some(format) = input("Format (md, pdf, or docx)", Some("md")) else {
+                return;
+            };
+            let Some(output) = input("Output directory", None) else {
+                return;
+            };
+            launch_command(
+                "export",
+                &[&source, "--format", &format, "--output", &output],
+            );
+        }
+        Some(2) => {
+            println!(
+                "History opens the local history store and may create its database. Use 'snipe-code help history' for all history operations."
+            );
+            if let Some(0) = select("History", &["List saved scans", "Back"]) {
+                launch_command("history", &["list"]);
+            }
+        }
+        Some(3) => {
+            println!(
+                "Legacy audit writes security report files into the target directory and may replace existing reports."
+            );
+            launch_project_command("audit");
+        }
+        _ => {}
     }
 }
 
@@ -63,7 +189,7 @@ fn run_new_cmd(args: &[String]) {
             args.get(i + 1)
                 .filter(|v| !v.starts_with('-'))
                 .cloned()
-                .ok_or_else(|| format!("Usage error: {} membutuhkan nilai.", name))
+                .ok_or_else(|| format!("Usage error: {} requires a value.", name))
         };
         match option {
             "--ai-tools" => {
@@ -90,7 +216,7 @@ fn run_new_cmd(args: &[String]) {
     if let Err(e) = new::run(options) {
         eprintln!("snipe-code: {}", e);
         let usage = e.starts_with("unknown ")
-            || e.contains("Pilih minimal Frontend")
+            || e.starts_with("Select at least one frontend or backend")
             || e.contains("valid project name")
             || e.contains("requires");
         std::process::exit(if usage { 2 } else { 1 });
@@ -546,7 +672,17 @@ fn run_audit_cmd(args: &[String]) {
         }
         None => {
             if console::Term::stdout().is_term() {
-                audit::select_export_formats().join(",")
+                match audit::select_export_formats() {
+                    Ok(Some(formats)) => formats.join(","),
+                    Ok(None) => {
+                        println!("Audit cancelled.");
+                        return;
+                    }
+                    Err(error) => {
+                        eprintln!("audit: {error}");
+                        std::process::exit(3);
+                    }
+                }
             } else {
                 if json {
                     eprintln!("Terminal non-interaktif — default export: markdown.");
@@ -646,8 +782,14 @@ fn run_verify_cmd(args: &[String]) {
         println!("{}", VERIFY_HELP);
         return;
     }
-    let json = rest.iter().any(|token| token == "--json");
-    let options_args: Vec<String> = rest.into_iter().filter(|token| token != "--json").collect();
+    let (options_args, request) = verify::report::parse_args(&rest).unwrap_or_else(|error| {
+        usage_error(&format!("Usage error: {error}"));
+    });
+    let json = options_args.iter().any(|token| token == "--json");
+    let options_args: Vec<String> = options_args
+        .into_iter()
+        .filter(|token| token != "--json")
+        .collect();
     let options = match verify::Options::parse(&options_args) {
         Ok(options) => options,
         Err(error) => {
@@ -655,7 +797,21 @@ fn run_verify_cmd(args: &[String]) {
             std::process::exit(2);
         }
     };
-    let report = match verify::run(&options.path, &options, &verify::exec::run) {
+    let runner: verify::Runner<'_> = if json || request.is_some() {
+        &verify::exec::run_stderr
+    } else {
+        &verify::exec::run
+    };
+    let report = match if json || request.is_some() {
+        verify::run_with_approval(
+            &options.path,
+            &options,
+            runner,
+            &verify::approve_interactively_stderr,
+        )
+    } else {
+        verify::run(&options.path, &options, runner)
+    } {
         Ok(report) => report,
         Err(error) => {
             eprintln!("Usage error: {}", error);
@@ -664,6 +820,14 @@ fn run_verify_cmd(args: &[String]) {
     };
     if report.parts.is_empty() {
         eprintln!("verify: no gates found in {}", options.path.display());
+    }
+    if let Some(request) = request {
+        if let Err(error) = verify::report::write(&request, &report) {
+            eprintln!("verify: report export failed: {error}");
+            std::process::exit(3);
+        }
+        println!("{}", request.output.display());
+        std::process::exit(verify::exit_status(&report));
     }
     if json {
         match verify::render_json(&report) {
@@ -708,165 +872,115 @@ fn print_command_help(cmd: &str) {
         "help" => print_help(),
         _ => {
             println!("Unknown topic: {}", cmd);
-            println!("Run 'snipe-code help' untuk daftar perintah.");
+            println!("Run 'snipe-code help' for the command list.");
         }
     }
 }
 
-const HELP_TEXT: &str = r#"SNIPE-CODE CLI — Rust scaffolding and heuristic audit tool
+const HELP_TEXT: &str = r#"SNIPE-CODE CLI - Rust scaffolding and heuristic security audit
 
 USAGE
     snipe-code [COMMAND] [OPTIONS]
 
+An interactive invocation without a command opens the goal launcher. Without
+an interactive terminal, select a command; no project is created.
+
 COMMANDS
-    new        Jalankan wizard interaktif untuk generate proyek baru
-               (default jika tidak ada command)
-    analyze    Laporkan isi proyek: bahasa dan ukurannya, struktur, entry point,
-               dan dependency yang dideklarasikan (read-only, offline)
-    audit      Legacy security audit dan export report
-    scan       Read-only audit; JSON versioned dengan --json; --save simpan history lokal
-    advisory   Refresh snapshot OSV eksplisit; perlu --yes dan curl HTTPS
-    quality    Read-only Rust metrics, imported LCOV and baseline quality policy
+    new        Create a project with the generation wizard
+    analyze    Report project structure and dependencies (read-only, offline)
+    audit      Legacy security audit and report export
+    scan       Scan without writing; --save stores local history
+    advisory   Refresh the OSV snapshot explicitly using curl and HTTPS
+    quality    Analyze Rust metrics, imported coverage, and baseline policy
     qa         Plan reviewable test cases from structured requirements
-    export     Export hasil scan ke direktori eksplisit
-    history    Simpan, lihat, export, dan hapus riwayat scan lokal
-    verify     Periksa gate kualitas proyek yang sudah ada
-    help       Tampilkan bantuan ini (alias: --help, -h)
-    version    Tampilkan versi CLI yang di-compile (alias: --version)
-    faq        Tampilkan FAQ (install, uninstall, troubleshooting)
+    export     Export a saved scan to an explicit directory
+    history    List, view, export, or delete local scan history
+    verify     Run declared project quality gates
+    help       Show help (aliases: --help, -h)
+    version    Show the compiled version (alias: --version)
+    faq        Show installation and troubleshooting guidance
 
 OPTIONS
-    --dry-run      Preview struktur folder tanpa membuat file (dengan new)
-    --ai-tools <l> (new) AI agent tools yang di-generate, id dipisah koma
-                   (mis. cursor,claude-code) atau 'none' untuk tanpa artifact
-    --name <n>     (new) Nama proyek; melewati prompt nama
-    --template <id>
-                   (new) Preset: none, company-profile, portfolio, blog
-    --frontend <id>
-                   (new) Frontend: nextjs, react-vite, vue, nuxtjs, none
-    --backend <id> (new) Backend: dotnet8, nestjs, go-gin, spring-boot, laravel, none
-    --database <id>
-                   (new) Database: postgresql, mysql, none
-    --json         Hasil terstruktur (JSON) di stdout untuk new, analyze, dan
-                   audit; progress serta pesan lain ke stderr
-    --export <f>   Format export audit: md, pdf, docx (koma, contoh: pdf,docx)
-    --save         (scan) Simpan hasil ke SQLite lokal; default scan tidak menyimpan
-    --only <g>     (verify) Batasi ke satu gate: install, lint, typecheck, test,
-                   build, security
-    --security     (verify) Tambahkan gate kerentanan dependency
-    --no-install   (verify) Lewati gate install; dependency yang sudah ada
-                   dipakai apa adanya
-    --version      Tampilkan versi CLI (sama dengan 'snipe-code version')
+    --dry-run        (new) Preview without creating files
+    --ai-tools <ids> (new) Comma-separated tool IDs, or none
+    --name <name>    (new) Set the project name
+    --template <id>  (new) Preset: none, company-profile, portfolio, blog
+    --frontend <id>  (new) nextjs, react-vite, vue, nuxtjs, none
+    --backend <id>   (new) dotnet8, nestjs, go-gin, spring-boot, laravel, none
+    --database <id>  (new) postgresql, mysql, none
+    --json           Print a structured result where supported
+    --export <f>     (audit) Report formats: md, pdf, docx
+    --save           (scan) Save the result to local history
+    --only <gate>    (verify) Run one gate
+    --security       (verify) Include dependency security checks
+    --no-install     (verify) Skip the install gate
+    --report <f>     (verify) Write a json, junit, or md report with --output
+    --version        Show the compiled version
 
-CONTOH
-    snipe-code                          Wizard interaktif
-    snipe-code new                      Wizard interaktif
-    snipe-code new --dry-run            Preview struktur tanpa membuat file
-    snipe-code new --ai-tools cursor,claude-code
-                                        Generate dengan artifact Cursor + Claude Code
+EXAMPLES
+    snipe-code                          Open the interactive launcher
+    snipe-code new --dry-run            Preview project files
     snipe-code new --ai-tools none --name demo --json
-                                        Tanpa artifact agen, hasil JSON di stdout
-    snipe-code analyze .                Laporkan isi folder ini
-    snipe-code analyze . --json         Laporan yang sama sebagai JSON di stdout
-    snipe-code audit .                  Scan folder ini (pilih format interaktif)
+    snipe-code analyze . --json         Read-only project report
+    snipe-code scan . --json            Read-only security scan
     snipe-code audit . --export pdf,docx
-                                        Scan dan export PDF + DOCX langsung
-    snipe-code scan . --json --save     Scan lalu simpan hasil ke history lokal
-    snipe-code history list             Daftar run yang tersimpan
-    snipe-code history show <run-id>    Tampilkan hasil kanonik
-    snipe-code history delete <project-id>
-                                        Hapus run milik satu project lokal
-    snipe-code verify .                 Periksa gate proyek di direktori ini
-    snipe-code verify ../app --only test
-                                        Jalankan hanya gate test
-    snipe-code verify . --no-install    Periksa tanpa menjalankan install
-                                        dependency
+    snipe-code verify . --only test
+    snipe-code verify . --report junit --output verify.xml
 
-DETAIL PER COMMAND
-    snipe-code help new
-    snipe-code help analyze
-    snipe-code help audit
-    snipe-code help verify
+Legacy audit writes security reports in the target. Verify runs project tools,
+which can change files or access the network. Neither operation needs AI.
+Use 'snipe-code help <command>' for details.
 "#;
 
 const FAQ_TEXT: &str = r#"FAQ
 
 Q: 'snipe-code' is not recognized as an internal or external command
-A: Binary belum di-build/di-install. Solusi:
-   1) Build dari source (butuh Rust):  cargo build --release
-      Binary ada di target/release/snipe-code.exe — jalankan langsung
-      atau salin ke folder mana pun (portable).
-   2) Install ke PATH:  cargo install --path . --locked
-      Flag --locked wajib: tanpa itu Cargo menyelesaikan dependency ulang dan
-      gagal karena lini zip 0.6.x (dipakai docx-rs) sudah yanked. --locked
-      memakai Cargo.lock repo. Setelah ini 'snipe-code' bisa dipanggil dari
-      direktori mana pun.
+A: Build with 'cargo build --release' and run the binary from target/release/,
+   or install it on PATH with 'cargo install --path . --locked'. The lockfile
+   retains the yanked zip dependency required by docx-rs.
 
-Q: Bagaimana cara uninstall?
-A: - Jika di-install via cargo:  cargo uninstall snipe-code
-   - Jika memakai exe portable: cukup hapus file snipe-code.exe
-     (tidak ada registry/system files yang disentuh)
+Q: How do I uninstall it?
+A: Run 'cargo uninstall snipe-code', or delete the portable binary.
 
-Q: Apa perbedaan build --release dan install --path?
-A: build --release menghasilkan file exe di target/release/ (bisa disalin,
-   portable). install --path . --locked menyalinnya ke ~/.cargo/bin supaya perintah
-   'snipe-code' dikenali dari mana saja. Install menambah ~5MB; folder
-   target/ (hasil compile) yang besar — hapus dengan:  cargo clean
+Q: Where should I run commands?
+A: 'new' creates <current directory>/<project name>. Run it from the desired
+   parent directory. Analyze, audit, and verify accept PATH (default: .).
 
-Q: Audit tidak bisa pilih format?
-A: Jalankan 'snipe-code audit .' tanpa --export — muncul menu pilihan
-   format (Markdown/PDF/DOCX). Atau beri flag langsung:
-   snipe-code audit . --export pdf
-
-Q: Perintah ini harus dijalankan dari folder mana?
-A: 'new' menulis proyek ke <folder saat ini>/<nama proyek>, jadi cd dulu ke
-   folder induk sebelum menjalankan wizard. 'analyze', 'audit', dan 'verify'
-   menerima PATH (default: folder saat ini), jadi bisa dipanggil dari mana
-   saja:  snipe-code analyze ../proyek
-
-Q: Apakah verify mengubah isi proyek?
-A: Tool yang dijalankannya menulis ke folder proyek: node_modules/ dan
-   package-lock.json (npm), go.sum serta go.mod yang dirapikan 'go mod tidy',
-   target/ (maven), obj/ dan bin/ (dotnet). Pakai
-   'snipe-code verify . --no-install' kalau dependency sudah siap, atau
-   'snipe-code audit .' untuk pemeriksaan read-only. Laporan audit ditulis ke
-   dalam folder yang di-scan sebagai Audit_Report.md, .pdf, dan .docx.
+Q: What writes to the project?
+A: Legacy audit writes security reports into its target. Verify runs project
+   tools that may change files and access the network. For read-only inspection,
+   use 'snipe-code analyze .' or 'snipe-code scan .'.
 "#;
 
-const NEW_HELP: &str = r#"snipe-code new — Generate proyek baru
+const NEW_HELP: &str = r#"snipe-code new - Create a project
 
 USAGE
     snipe-code new [--dry-run] [--ai-tools <ids|none>] [--name <n>] [--json]
                    [--template <id>] [--frontend <id>] [--backend <id>] [--database <id>]
 
-ALUR WIZARD
-    1. Pilih template (No Template / Company Profile / Portfolio / Blog)
-    2. Pilih Frontend (Next.js, React, Vue, Nuxt, atau None)
-    3. Pilih Backend (.NET 8, NestJS, Go, Spring Boot, Laravel, atau None)
-    4. Pilih Database (PostgreSQL, MySQL, atau None)
-    5. Masukkan nama proyek
-    6. Pilih AI agent tools (multi-select, opsional — default: tidak ada)
-    7. Jika folder sudah ada: Overwrite atau Cancel
+WIZARD
+    Choose a preset, frontend, backend, database, name, and AI integrations.
+    Review the destination and Git choices, then preview, create, go back, or
+    cancel. Git initialization and the initial commit require separate choices.
+    Presets add files to the framework stack; they are not frameworks.
+    Agent selection writes project-local artifacts; it does not run a model,
+    authenticate a provider, store credentials, or require an API key.
 
 OPTIONS
-    --dry-run            Tampilkan struktur yang akan dibuat tanpa membuat file
-    --ai-tools <ids>     AI agent tools yang di-generate, id dipisah koma:
+    --dry-run            Show planned files without creating them
+    --ai-tools <ids>     Generate artifacts for comma-separated agent IDs:
                          agents-md, claude-code, cursor, opencode, antigravity,
                          github-copilot, windsurf, hermes-agent, codex, gemini-cli
-                         Nilai 'none' berarti tidak ada artifact agen. Opsi ini juga
-                         melewati prompt pemilihan AI tools.
-    --name <n>           Nama proyek; melewati prompt nama
+                         Use 'none' to skip agent artifacts and the prompt.
+    --name <n>           Project name; skip the name prompt
     --template <id>      Preset: none, company-profile, portfolio, blog.
-                         Melewati prompt template.
-    --frontend <id>      nextjs, react-vite, vue, nuxtjs, atau none.
-                         Melewati prompt Frontend.
-    --backend <id>       dotnet8, nestjs, go-gin, spring-boot, laravel, atau none.
-                         Melewati prompt Backend.
-    --database <id>      postgresql, mysql, atau none. Melewati prompt Database.
-    --json               Hasil generate (tools, artifact, outcome) sebagai JSON
-                         di stdout; progress dan peringatan ke stderr
+                         Skip the preset prompt.
+    --frontend <id>      nextjs, react-vite, vue, nuxtjs, or none
+    --backend <id>       dotnet8, nestjs, go-gin, spring-boot, laravel, or none
+    --database <id>      postgresql, mysql, or none
+    --json               Print the generation result as JSON on stdout
 
-CONTOH
+EXAMPLES
     snipe-code new
     snipe-code new --dry-run
     snipe-code new --ai-tools cursor,claude-code
@@ -889,118 +1003,106 @@ GitHub Advisory Database, CC-BY-4.0. Seven-day snapshot freshness; SHA-256
 checks corruption, not authenticity. Scan stays offline; select cache or file
 with scan --snapshot <FILE|DIR>. Invalid refresh retains previous snapshot.";
 
-const AUDIT_HELP: &str = r#"snipe-code audit — Security audit folder proyek
+const AUDIT_HELP: &str = r#"snipe-code audit - Legacy project security audit
 
 USAGE
     snipe-code audit [PATH] [--export <md,pdf,docx>] [--json]
 
-DESKRIPSI
-    Scan folder proyek untuk memeriksa kelengkapan file standar dan
-    risiko keamanan, lalu export laporan. Tanpa --export, muncul menu
-    pilihan format interaktif (Markdown/PDF/DOCX).
+DESCRIPTION
+    Scan the project and write security reports into the target directory.
+    Without --export, choose formats interactively; a non-interactive run
+    defaults to Markdown. Existing report files may be replaced.
 
-ARGUMEN
-    PATH         Folder yang di-scan (default: direktori saat ini)
+ARGUMENTS
+    PATH         Project directory (default: current directory)
 
 OPTIONS
-    --export <md,pdf,docx>   Format export langsung tanpa prompt
-                             (bisa kombinasi, pisahkan dengan koma)
-    --json                   Hasil audit (context, findings dengan severity dan
-                             lokasi, total) sebagai JSON di stdout. File laporan
-                             tetap ditulis; ringkasannya ke stderr, jadi stdout
-                             bisa di-parse.
+    --export <md,pdf,docx>   Comma-separated formats, without a prompt
+    --json                   Print the result as JSON on stdout; report files
+                             are still written and progress goes to stderr.
 
-CONTOH
-    snipe-code audit .                        Pilih format interaktif
-    snipe-code audit . --export pdf,docx      Export PDF + DOCX langsung
-    snipe-code audit ../proyek --export md    Export markdown
-    snipe-code audit . --export md --json     Laporan md + JSON di stdout
+EXAMPLES
+    snipe-code audit .
+    snipe-code audit . --export pdf,docx
+    snipe-code audit ../app --export md
+    snipe-code audit . --export md --json
 "#;
 
-const ANALYZE_HELP: &str = r#"snipe-code analyze — Laporkan isi sebuah proyek
+const ANALYZE_HELP: &str = r#"snipe-code analyze - Report project structure
 
 USAGE
     snipe-code analyze [PATH] [--json]
 
-DESKRIPSI
-    Analisis read-only dan offline. Tidak ada file di proyek target yang
-    dibuat, diubah, atau dihapus, dan tidak ada jaringan yang dipakai.
-    Laporan memuat bahasa beserta jumlah file dan barisnya, struktur tingkat
-    atas dan bagian proyek yang dikenali, entry point per bagian, dependency
-    per manifest, dan bagian Limits berisi apa yang tidak bisa dianalisis.
+DESCRIPTION
+    Analyze read-only and offline: languages, line counts, structure, entry
+    points, dependencies, and Limits. Dependency, build, and hidden directories
+    are skipped; src/bin is retained for Rust source.
 
-    Traversal memakai walker yang sama dengan audit: direktori dependency,
-    hasil build, dan direktori hidden dilewati. Pengecualiannya src/bin, yang
-    berisi source di crate Rust.
-
-ARGUMEN
-    PATH            Folder yang dianalisis (default: direktori saat ini)
+ARGUMENTS
+    PATH            Project directory (default: current directory)
 
 OPTIONS
-    --json          Laporan yang sama sebagai JSON di stdout
-    -h, --help      Bantuan perintah ini
+    --json          Print the report as JSON on stdout
+    -h, --help      Show this help
 
 EXIT STATUS
-    0   analisis selesai
-    2   kesalahan pemakaian (opsi tidak dikenal)
-    3   folder tidak ada atau bukan folder
+    0   analysis completed
+    2   usage error
+    3   missing path or not a directory
 
-CATATAN
-    Angka yang dilaporkan adalah jumlah baris, bukan baris kode: baris kosong
-    dan komentar ikut dihitung. pom.xml dan *.csproj dipindai untuk nama
-    dependency, sedangkan package.json, composer.json, go.mod, dan Cargo.toml
-    di-parse.
+NOTES
+    Counts include blank lines and comments; they are not lines of code.
+    pom.xml and *.csproj are scanned for dependency names. The other supported
+    manifests are parsed.
 
-CONTOH
+EXAMPLES
     snipe-code analyze .
-    snipe-code analyze ../proyek --json
+    snipe-code analyze ../app --json
 "#;
 
-const VERIFY_HELP: &str = r#"snipe-code verify — Periksa gate kualitas proyek
+const VERIFY_HELP: &str = r#"snipe-code verify - Run project quality gates
 
 USAGE
     snipe-code verify [PATH] [--only <gate>] [--security] [--no-install]
+                      [--json | --report <json|junit|md> --output <FILE> [--overwrite]]
 
-DESKRIPSI
-    Membaca manifest proyek lalu menjalankan gate yang memang dideklarasikan:
-    install, lint, typecheck, test, build. Gate yang tidak dideklarasikan
-    dilaporkan sebagai not-applicable, bukan dijalankan.
+DESCRIPTION
+    Reads manifests and runs declared install, lint, typecheck, test, and build
+    gates. Missing gates are reported as not-applicable. Project commands can
+    modify files and access the network. Verification is not a sandbox.
+    For read-only inspection use 'snipe-code analyze' or 'snipe-code scan'.
 
-    Perintah ini menjalankan tool milik proyek (npm, composer, mvn, dotnet, go,
-    cargo) sehingga bisa memakai jaringan, dan tool itu menulis ke folder
-    proyek: node_modules/, package-lock.json, go.sum, go.mod yang dirapikan
-    'go mod tidy', target/, obj/, dan bin/. Tidak ada yang dihapus, tapi pohon
-    proyek memang berubah. Untuk pemeriksaan read-only yang sepenuhnya offline,
-    pakai 'snipe-code analyze' atau 'snipe-code audit'.
-
-ARGUMEN
-    PATH            Folder proyek (default: direktori saat ini)
+ARGUMENTS
+    PATH            Project directory (default: current directory)
 
 OPTIONS
-    --only <gate>   Jalankan hanya gate ini (harus berlaku di proyek)
-    --security      Tambahkan gate kerentanan dependency: npm audit,
-                    composer audit, dotnet list package --vulnerable
-    --no-install    Lewati gate install. Gate lain tetap jalan, dan gate
-                    install dilaporkan sebagai not-applicable
-    --json          Emit report terstruktur JSON ke stdout
-    -h, --help      Bantuan perintah ini
+    --only <gate>   Run one applicable gate
+    --security      Include dependency checks: npm audit, composer audit,
+                    dotnet list package --vulnerable
+    --no-install    Skip install; its state is not-applicable
+    --json          Print the structured result to stdout
+    --report <f>    Write a json, junit, or md verification report
+    --output <file> Explicit report destination; required with --report
+    --overwrite     Replace an existing report at the explicit destination
+    -h, --help      Show this help
 
-KEAMANAN
-    Setiap gate menampilkan command, direktori, efek yang diketahui, dan meminta
-    persetujuan interaktif untuk scope tepat. Tanpa terminal/approval, gate blocked.
-    Gate install/test diblokir bila target DB unknown, remote, atau production-like.
-    Preflight tidak sandbox command proyek dan tidak dapat membuktikan semua efek.
+SAFETY
+    Gates show commands, directories, and known effects before approval.
+    Without interactive approval, gates are blocked. Install and test gates
+    also block unknown, remote, and production-like database targets.
+    Preflight does not sandbox project commands or prove all their effects.
 
 EXIT STATUS
-    0   semua gate yang berlaku lulus
-    1   ada gate yang gagal (nama gate dan perintahnya dicetak)
-    2   kesalahan pemakaian (opsi atau gate tidak dikenal)
-    3   tidak ada gate dieksekusi atau tidak ada gate ditemukan
-    4   hasil parsial: ada gate unavailable atau blocked
+    0   all applicable gates passed
+    1   a gate failed
+    2   usage error
+    3   no gate executed, or report write failed
+    4   incomplete: a gate was unavailable or blocked
 
-CONTOH
+EXAMPLES
     snipe-code verify .
-    snipe-code verify ../proyek --only test
+    snipe-code verify ../app --only test
     snipe-code verify . --security
     snipe-code verify . --no-install
+    snipe-code verify . --report junit --output verify.xml
 "#;
