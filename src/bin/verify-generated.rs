@@ -1,7 +1,7 @@
 //! Generates a project for one stack and verifies it through the shared
 //! verification engine, so CI exercises the same code path users run.
 
-use snipe_code::generator::{GenerateConfig, generate};
+use snipe_code::generator::{GenerateConfig, generate_in};
 use snipe_code::verify::{self, Options};
 use std::env;
 use std::fs;
@@ -34,6 +34,9 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
+    if env::var_os(snipe_code::template::OVERRIDE_ENV).is_some() {
+        return Err("verify-generated refuses caller-controlled template overrides".to_string());
+    }
     let mut frontend = "none";
     let mut backend = "none";
     let mut database = "none";
@@ -75,13 +78,8 @@ fn generate_and_verify(
         database: database.to_string(),
         ai_tools: Vec::new(),
     };
-    let repo = env::current_dir().map_err(|e| e.to_string())?;
-    env::set_current_dir(workspace).map_err(|e| e.to_string())?;
-    let generated = generate(&config, false).map_err(|e| e.to_string());
-    let result =
-        generated.and_then(|_| verify_generated(Path::new("generated-app"), frontend, backend));
-    env::set_current_dir(repo).map_err(|e| e.to_string())?;
-    result
+    generate_in(workspace, &config, false)?;
+    verify_generated(&workspace.join("generated-app"), frontend, backend)
 }
 
 /// Runs the generated project through the engine and keeps the requested stack

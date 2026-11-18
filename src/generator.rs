@@ -94,7 +94,11 @@ pub fn validate_project_name(name: &str) -> Result<(), String> {
 pub fn resolve_destination(project_name: &str) -> Result<PathBuf, String> {
     let cwd =
         std::env::current_dir().map_err(|e| format!("Cannot read current directory: {}", e))?;
-    let dest = cwd.join(project_name);
+    resolve_destination_in(&cwd, project_name)
+}
+
+fn resolve_destination_in(parent: &Path, project_name: &str) -> Result<PathBuf, String> {
+    let dest = parent.join(project_name);
     match fs::symlink_metadata(&dest) {
         Ok(meta) if meta.file_type().is_symlink() => Err(format!(
             "Destination '{}' is a symlink/junction — refusing to touch it",
@@ -131,6 +135,17 @@ fn staging_dir(dest: &Path) -> Result<PathBuf, String> {
 /// `overwrite: true` allows replacement of an existing ordinary directory
 /// (after successful staging). Existing symlinks/junctions are always rejected.
 pub fn generate(config: &GenerateConfig, overwrite: bool) -> Result<GenerateResult, String> {
+    let parent =
+        std::env::current_dir().map_err(|e| format!("Cannot read current directory: {}", e))?;
+    generate_in(&parent, config, overwrite)
+}
+
+/// Generate under an explicit parent without changing the process working directory.
+pub fn generate_in(
+    parent: &Path,
+    config: &GenerateConfig,
+    overwrite: bool,
+) -> Result<GenerateResult, String> {
     validate_project_name(&config.project_name)?;
     crate::template::preflight_override()?;
     crate::template::validate_relative(&config.template_id)?;
@@ -167,7 +182,7 @@ pub fn generate(config: &GenerateConfig, overwrite: bool) -> Result<GenerateResu
     }
     crate::ai_tools::plan_selected(&config.ai_tools)?;
     crate::ai_tools::shared_content()?;
-    let dest = resolve_destination(&config.project_name)?;
+    let dest = resolve_destination_in(parent, &config.project_name)?;
     if dest.exists() && !overwrite {
         return Err(format!(
             "Destination '{}' already exists (use overwrite to replace)",
@@ -685,8 +700,28 @@ pub fn declared_scripts(dir: &std::path::Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::publish;
+    use super::{GenerateConfig, generate_in, publish};
     use std::fs;
+
+    #[test]
+    fn generate_in_uses_explicit_parent_without_changing_current_directory() {
+        let root =
+            std::env::temp_dir().join(format!("snipe-explicit-parent-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let before = std::env::current_dir().unwrap();
+        let config = GenerateConfig {
+            project_name: "project".into(),
+            template_id: "none".into(),
+            frontend: "none".into(),
+            backend: "none".into(),
+            database: "none".into(),
+            ai_tools: vec![],
+        };
+        generate_in(&root, &config, false).unwrap();
+        assert!(root.join("project/README.md").is_file());
+        assert_eq!(std::env::current_dir().unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn failed_final_publish_restores_old_destination() {

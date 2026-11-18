@@ -264,10 +264,13 @@ fn database_url_credentials_and_ambiguous_values_never_reach_reports() {
         r#"{"name":"app","scripts":{"test":"vitest run"}}"#,
     );
     for config in [
-        "DATABASE_URL=postgres://user-canary:password-canary@localhost/app_test\n",
-        "DATABASE_URL=opaque-secret-canary-value\n",
+        format!(
+            "DATABASE_URL=postgres://user-canary:{}@localhost/app_test\n",
+            "password-canary"
+        ),
+        "DATABASE_URL=opaque-secret-canary-value\n".to_string(),
     ] {
-        fixture.write(".env", config);
+        fixture.write(".env", &config);
         let output = run_verify_json(&fixture.path, &[]);
         assert_eq!(output.status.code(), Some(3));
         let stdout = String::from_utf8(output.stdout).unwrap();
@@ -331,6 +334,23 @@ fn verify_generated_rejects_caller_supplied_project_paths() {
         fs::read_to_string(fixture.path.join("generated-canary.txt")).unwrap(),
         "keep"
     );
+}
+
+#[test]
+fn verify_generated_rejects_untrusted_template_override() {
+    let fixture = Fixture::new();
+    let output = Command::new(env!("CARGO_BIN_EXE_verify-generated"))
+        .args(["--frontend", "react-vite"])
+        .current_dir(&fixture.path)
+        .env("SNIPE_CODE_TEMPLATES", &fixture.path)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("refuses caller-controlled template overrides")
+    );
+    assert_eq!(fs::read_dir(&fixture.path).unwrap().count(), 0);
 }
 
 #[test]
