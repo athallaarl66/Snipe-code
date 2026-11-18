@@ -106,6 +106,8 @@ fn per_command_help_documents_options_and_exit_status() {
         "--no-install",
         "--json",
         "SAFETY",
+        "block explicit remote, production-like, or ambiguous database targets",
+        "An undetected target is unknown and requires explicit approval",
         "blocked",
         "EXIT STATUS",
         "4   incomplete",

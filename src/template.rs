@@ -17,7 +17,7 @@ thread_local! {
 fn override_root() -> Option<PathBuf> {
     let dir = std::env::var_os(OVERRIDE_ENV)?;
     let path = PathBuf::from(dir);
-    path.is_dir().then_some(path)
+    (check_override_ancestors(&path).is_ok() && path.is_dir()).then_some(path)
 }
 
 fn remember(path: &Path) {
@@ -49,6 +49,45 @@ fn is_link(metadata: &std::fs::Metadata) -> bool {
     link
 }
 
+fn check_override_ancestors(root: &Path) -> Result<(), String> {
+    let absolute = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        #[cfg(windows)]
+        if matches!(
+            root.components().next(),
+            Some(std::path::Component::Prefix(_))
+        ) {
+            return Err(format!(
+                "cannot inspect template '{}': drive-relative path",
+                root.display()
+            ));
+        }
+        std::env::current_dir()
+            .map_err(|e| format!("cannot inspect template '{}': {e}", root.display()))?
+            .join(root)
+    };
+    for ancestor in absolute.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        match std::fs::symlink_metadata(ancestor) {
+            Ok(metadata) if is_link(&metadata) => {
+                return Err(format!(
+                    "template path contains a link: '{}'",
+                    ancestor.display()
+                ));
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(e) => {
+                return Err(format!(
+                    "cannot inspect template '{}': {e}",
+                    ancestor.display()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Reject links anywhere in an override tree before generation reads it.
 pub(crate) fn preflight_override() -> Result<(), String> {
     fn visit(path: &Path) -> Result<(), String> {
@@ -70,41 +109,7 @@ pub(crate) fn preflight_override() -> Result<(), String> {
         Ok(())
     }
     if let Some(root) = std::env::var_os(OVERRIDE_ENV).map(PathBuf::from) {
-        let absolute = if root.is_absolute() {
-            root.clone()
-        } else {
-            #[cfg(windows)]
-            if matches!(
-                root.components().next(),
-                Some(std::path::Component::Prefix(_))
-            ) {
-                return Err(format!(
-                    "cannot inspect template '{}': drive-relative path",
-                    root.display()
-                ));
-            }
-            std::env::current_dir()
-                .map_err(|e| format!("cannot inspect template '{}': {e}", root.display()))?
-                .join(&root)
-        };
-        for ancestor in absolute.ancestors().collect::<Vec<_>>().into_iter().rev() {
-            match std::fs::symlink_metadata(ancestor) {
-                Ok(metadata) if is_link(&metadata) => {
-                    return Err(format!(
-                        "template path contains a link: '{}'",
-                        ancestor.display()
-                    ));
-                }
-                Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
-                Err(e) => {
-                    return Err(format!(
-                        "cannot inspect template '{}': {e}",
-                        ancestor.display()
-                    ));
-                }
-            }
-        }
+        check_override_ancestors(&root)?;
         match std::fs::symlink_metadata(&root) {
             Ok(_) => visit(&root)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}

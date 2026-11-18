@@ -6,6 +6,10 @@ fn generator_child() {
     if std::env::var_os("SNIPE_ANCESTOR_CHILD").is_none() {
         return;
     }
+    assert_ne!(
+        snipe_code::template::read("frontends/nextjs/files/next.config.js").as_deref(),
+        Some("outside-canary")
+    );
     let config = GenerateConfig {
         project_name: "project".into(),
         template_id: "blog".into(),
@@ -68,7 +72,12 @@ fn ancestor_link_is_rejected_before_cli_or_generator_reads_overrides() {
     ));
     fs::create_dir(&work).unwrap();
     let target = work.join("target");
-    fs::create_dir_all(target.join("overrides")).unwrap();
+    fs::create_dir_all(target.join("overrides/frontends/nextjs/files")).unwrap();
+    fs::write(
+        target.join("overrides/frontends/nextjs/files/next.config.js"),
+        "outside-canary",
+    )
+    .unwrap();
     fs::create_dir(work.join("project")).unwrap();
     fs::write(work.join("project/old.txt"), "old").unwrap();
 

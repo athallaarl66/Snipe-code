@@ -144,8 +144,12 @@ pub fn temp_workspace(prefix: &str) -> Result<PathBuf, String> {
         std::process::id(),
         unique_suffix()
     ));
-    fs::create_dir_all(&path).map_err(|error| error.to_string())?;
+    create_workspace(&path)?;
     Ok(long_path(path))
+}
+
+fn create_workspace(path: &Path) -> Result<(), String> {
+    fs::create_dir(path).map_err(|error| format!("cannot create fresh workspace: {error}"))
 }
 
 /// The canonical path without the Windows `\\?\` prefix.
@@ -169,6 +173,16 @@ fn unique_suffix() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_collision_preserves_existing_contents() {
+        let workspace = temp_workspace("snipe-workspace-collision").unwrap();
+        let canary = workspace.join("canary");
+        fs::write(&canary, b"preserve").unwrap();
+        assert!(create_workspace(&workspace).is_err());
+        assert_eq!(fs::read(&canary).unwrap(), b"preserve");
+        fs::remove_dir_all(workspace).unwrap();
+    }
 
     #[test]
     fn generated_command_removes_inherited_database_targets() {
