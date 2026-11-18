@@ -52,8 +52,64 @@ fn is_within_root(root: &Path, candidate: &Path) -> bool {
     fs::canonicalize(candidate).is_ok_and(|resolved| resolved.starts_with(root))
 }
 
+#[cfg(test)]
+mod root_boundary_tests {
+    use super::is_within_root;
+    use std::fs;
+
+    #[test]
+    fn canonical_boundary_rejects_sibling_and_parent_escape() {
+        let base =
+            std::env::temp_dir().join(format!("snipe-audit-boundary-{}", std::process::id()));
+        fs::create_dir(&base).unwrap();
+        let root = base.join("project");
+        let sibling = base.join("project-other");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&sibling).unwrap();
+        fs::write(root.join("inside.js"), "inside").unwrap();
+        fs::write(sibling.join("outside.js"), "outside").unwrap();
+        assert!(is_within_root(&root, &root.join("inside.js")));
+        assert!(!is_within_root(&root, &sibling.join("outside.js")));
+        assert!(!is_within_root(
+            &root,
+            &root.join("../project-other/outside.js")
+        ));
+        fs::remove_dir_all(base).unwrap();
+    }
+}
+
+fn is_safe_entry(root: &Path, candidate: &Path) -> bool {
+    use std::path::Component;
+
+    let Ok(relative) = candidate.strip_prefix(root) else {
+        return false;
+    };
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(name) = component else {
+            return false;
+        };
+        current.push(name);
+        let Ok(metadata) = fs::symlink_metadata(&current) else {
+            return false;
+        };
+        if metadata.file_type().is_symlink() {
+            return false;
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                return false;
+            }
+        }
+    }
+    is_within_root(root, candidate)
+}
+
 pub(crate) fn read_within_root(root: &Path, file: &Path) -> Option<String> {
-    if !is_within_root(root, file) {
+    if !is_safe_entry(root, file) {
         return None;
     }
     fs::read_to_string(file).ok()
@@ -61,7 +117,7 @@ pub(crate) fn read_within_root(root: &Path, file: &Path) -> Option<String> {
 
 pub(crate) fn read_bounded_within_root(root: &Path, file: &Path, max_bytes: u64) -> Option<String> {
     use std::io::Read;
-    if !is_within_root(root, file) || fs::symlink_metadata(file).ok()?.file_type().is_symlink() {
+    if !is_safe_entry(root, file) {
         return None;
     }
     let mut bytes = Vec::new();
@@ -324,32 +380,35 @@ fn validate_formats(value: &str) -> Result<Vec<String>, String> {
 
 pub(crate) fn detect_scopes(path: &Path) -> Vec<String> {
     let mut scopes = vec!["common".to_string()];
-    if path.join("frontend/package.json").exists() {
+    if is_safe_entry(path, &path.join("frontend/package.json")) {
         scopes.push("frontend".to_string());
     }
-    if path.join("backend/go.mod").exists() {
+    if is_safe_entry(path, &path.join("backend/go.mod")) {
         scopes.push("backend:go".to_string());
     }
-    if path.join("backend/package.json").exists() {
+    if is_safe_entry(path, &path.join("backend/package.json")) {
         scopes.push("backend:node".to_string());
     }
-    if path.join("backend/pom.xml").exists() {
+    if is_safe_entry(path, &path.join("backend/pom.xml")) {
         scopes.push("backend:java".to_string());
     }
-    if fs::read_dir(path.join("backend"))
-        .map(|entries| {
-            entries.flatten().any(|entry| {
-                entry
-                    .path()
-                    .extension()
-                    .is_some_and(|extension| extension == "csproj")
+    if is_safe_entry(path, &path.join("backend"))
+        && fs::read_dir(path.join("backend"))
+            .map(|entries| {
+                entries.flatten().any(|entry| {
+                    !is_link_or_unverified(&entry)
+                        && is_safe_entry(path, &entry.path())
+                        && entry
+                            .path()
+                            .extension()
+                            .is_some_and(|extension| extension == "csproj")
+                })
             })
-        })
-        .unwrap_or(false)
+            .unwrap_or(false)
     {
         scopes.push("backend:dotnet".to_string());
     }
-    if path.join("backend/composer.json").exists() {
+    if is_safe_entry(path, &path.join("backend/composer.json")) {
         scopes.push("backend:php".to_string());
     }
     for manifest in find_named_files(

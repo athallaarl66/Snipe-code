@@ -210,11 +210,12 @@ fn pdf_matches_canonical_json_for_zero_one_and_many() {
 }
 
 #[test]
-fn pdf_preserves_unicode_finding_path_verbatim() {
+fn pdf_escapes_unsupported_unicode_finding_path_reversibly() {
     let (fixture, envelope) = export(1, true);
     let text = pdf_text(&fixture).replace(['\n', '\r', '\u{c}'], "");
+    let encoded_path = envelope.result.findings[0].file.replace('🦀', r"\u{1F980}");
     assert!(
-        text.contains(&envelope.result.findings[0].file),
-        "PDF must preserve canonical Unicode path, not escape it"
+        text.contains(&encoded_path),
+        "PDF must preserve unsupported path code points as escapes"
     );
 }

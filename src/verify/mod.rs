@@ -448,13 +448,17 @@ fn gate_effects(gate: Gate) -> &'static str {
 
 fn classify_database_target(
     directory: &Path,
-    gate: Gate,
+    _gate: Gate,
 ) -> Result<(String, BTreeMap<String, String>), String> {
     let mut settings = BTreeMap::new();
-    for name in [".env", ".env.test", ".env.testing"] {
-        if gate == Gate::Install && name != ".env" {
-            continue;
-        }
+    for name in [
+        ".env",
+        ".env.local",
+        ".env.test",
+        ".env.test.local",
+        ".env.testing",
+        ".env.testing.local",
+    ] {
         match fs::read_to_string(directory.join(name)) {
             Ok(text) => {
                 for (key, value) in parse_env(&text)? {
@@ -480,12 +484,8 @@ fn classify_database_target(
         })
         .collect();
     for (key, value) in environment {
-        if settings
-            .get(&key)
-            .is_some_and(|existing| existing != &value)
-        {
-            return Err("conflicting database settings; gate blocked".to_string());
-        }
+        // Process environment is inherited by the gate and overrides values
+        // from dotenv files, so classify the effective value for each key.
         settings.insert(key, value);
     }
     let target = classify_settings(directory, &settings)?;
@@ -554,6 +554,9 @@ fn classify_settings(
     if settings.is_empty() {
         return Ok("not detected; database use and target remain unknown".to_string());
     }
+    if settings.values().any(|value| value.contains('$')) {
+        return Err("database configuration is ambiguous; gate blocked".to_string());
+    }
     if ["PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"]
         .iter()
         .any(|key| settings.contains_key(*key))
@@ -572,10 +575,9 @@ fn classify_settings(
         .or_else(|| settings.get("DB_URL"))
     {
         if let Some(target) = url.strip_prefix("sqlite:") {
-            if target.is_empty()
-                || target.starts_with("//")
-                || target.contains(['?', '#', '%', '$'])
+            if !valid_sqlite_target(target)
                 || looks_production(target)
+                || looks_production(&database_target_label(directory, target))
             {
                 return Err(
                     "SQLite target is ambiguous or production-like; gate blocked".to_string(),
@@ -599,6 +601,20 @@ fn classify_settings(
         return classify_host_database(&host, &database);
     }
 
+    if settings.get("DB_CONNECTION").is_some_and(|value| {
+        ![
+            "sqlite",
+            "mysql",
+            "mariadb",
+            "pgsql",
+            "postgres",
+            "postgresql",
+        ]
+        .iter()
+        .any(|supported| value.eq_ignore_ascii_case(supported))
+    }) {
+        return Err("database connection is ambiguous; gate blocked".to_string());
+    }
     if settings
         .get("DB_CONNECTION")
         .is_some_and(|value| value.eq_ignore_ascii_case("sqlite"))
@@ -614,8 +630,11 @@ fn classify_settings(
             .map(String::as_str)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| "SQLite target unknown; gate blocked".to_string())?;
-        if looks_production(database) {
-            return Err("production-like database target; gate blocked".to_string());
+        if !valid_sqlite_target(database)
+            || looks_production(database)
+            || looks_production(&database_target_label(directory, database))
+        {
+            return Err("SQLite target is ambiguous or production-like; gate blocked".to_string());
         }
         return Ok(format!(
             "local SQLite target {}",
@@ -634,6 +653,9 @@ fn classify_settings(
 }
 
 fn classify_host_database(host: &str, database: &str) -> Result<String, String> {
+    if database.trim().is_empty() {
+        return Err("database target unknown; gate blocked".to_string());
+    }
     if looks_production(host) || looks_production(database) {
         return Err("production-like database target; gate blocked".to_string());
     }
@@ -646,8 +668,30 @@ fn classify_host_database(host: &str, database: &str) -> Result<String, String> 
     Ok(format!("local database {database} at {host}"))
 }
 
+fn valid_sqlite_target(target: &str) -> bool {
+    if target == ":memory:" {
+        return true;
+    }
+    if target.trim().is_empty()
+        || target.starts_with("//")
+        || target.starts_with("\\\\")
+        || target.contains(['?', '#', '%', '$'])
+    {
+        return false;
+    }
+    let rest = if target.as_bytes().get(1) == Some(&b':')
+        && target.as_bytes()[0].is_ascii_alphabetic()
+        && matches!(target.as_bytes().get(2), Some(b'/' | b'\\'))
+    {
+        &target[2..]
+    } else {
+        target
+    };
+    !rest.contains(':')
+}
+
 fn database_target_label(directory: &Path, target: &str) -> String {
-    if target == ":memory:" || target.ends_with(":memory:") {
+    if target == ":memory:" {
         return ":memory:".to_string();
     }
     let path = Path::new(target);
@@ -668,20 +712,28 @@ fn parse_database_url(url: &str) -> Option<(String, String)> {
     let authority_and_path = rest.split(['?', '#']).next()?;
     let (authority, path) = authority_and_path.split_once('/')?;
     let authority = authority.rsplit('@').next()?;
-    let host = if authority.starts_with('[') {
-        authority
-            .split(']')
-            .next()?
-            .trim_start_matches('[')
-            .to_string()
+    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
+        let (host, suffix) = rest.split_once(']')?;
+        let port = if suffix.is_empty() {
+            None
+        } else {
+            Some(suffix.strip_prefix(':')?)
+        };
+        (host, port)
     } else {
-        authority.split(':').next()?.to_string()
+        match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        }
     };
-    let database = path.split('/').next()?.to_string();
-    if host.is_empty() || database.is_empty() {
+    if host.is_empty()
+        || path.is_empty()
+        || path.contains('/')
+        || port.is_some_and(|value| value.parse::<u16>().ok().filter(|port| *port > 0).is_none())
+    {
         return None;
     }
-    Some((host, database))
+    Some((host.to_string(), path.to_string()))
 }
 
 fn looks_production(value: &str) -> bool {
@@ -1020,6 +1072,20 @@ mod database_safety_tests {
             ("DB_DATABASE".to_string(), "productiontest".to_string()),
         ]);
         assert!(classify_settings(Path::new("."), &settings).is_err());
+    }
+
+    #[test]
+    fn sqlite_production_path_is_blocked_after_resolution() {
+        let root = std::env::temp_dir().join(format!("snipe-sqlite-scope-{}", std::process::id()));
+        let production = root.join("production");
+        fs::create_dir_all(&production).unwrap();
+        fs::write(production.join("test.db"), b"").unwrap();
+        let settings = BTreeMap::from([
+            ("DB_CONNECTION".to_string(), "sqlite".to_string()),
+            ("DB_DATABASE".to_string(), "test.db".to_string()),
+        ]);
+        assert!(classify_settings(&production, &settings).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

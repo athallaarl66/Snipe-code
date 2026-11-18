@@ -265,9 +265,77 @@ fn production_like_database_is_blocked_even_when_local_or_named_test() {
 }
 
 #[test]
+fn install_blocks_remote_database_in_test_env_before_approval() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
+    fs::remove_file(fixture.path().join(".env")).unwrap();
+    fixture.write(
+        ".env.test.local",
+        "DB_HOST=remote.example\nDB_DATABASE=test\n",
+    );
+    let options = Options {
+        path: fixture.path().to_path_buf(),
+        only: Some(Gate::Install),
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let approvals = std::cell::Cell::new(0);
+    let report = verify::run_with_approval(
+        fixture.path(),
+        &options,
+        &fake_runner(&seen, None, None),
+        &|_, _, _| {
+            approvals.set(approvals.get() + 1);
+            true
+        },
+    )
+    .unwrap();
+    assert_eq!(report.count("blocked"), 1);
+    assert_eq!(approvals.get(), 0);
+    assert!(seen.borrow().is_empty());
+}
+
+#[test]
+fn empty_database_name_blocks_before_approval_or_runner() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
+    fixture.write(".env", "DB_HOST=localhost\nDB_DATABASE=\n");
+    let options = Options {
+        path: fixture.path().to_path_buf(),
+        only: Some(Gate::Test),
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let approvals = std::cell::Cell::new(0);
+    let report = verify::run_with_approval(
+        fixture.path(),
+        &options,
+        &fake_runner(&seen, None, None),
+        &|_, _, _| {
+            approvals.set(approvals.get() + 1);
+            true
+        },
+    )
+    .unwrap();
+    assert_eq!(report.count("blocked"), 1);
+    assert_eq!(approvals.get(), 0);
+    assert!(seen.borrow().is_empty());
+}
+
+#[test]
 fn ambiguous_database_settings_never_reach_approval_or_runner() {
     for config in [
         "DB_HOST=remote.example\nDB_HOST=localhost\nDB_DATABASE=test\n",
+        "DB_CONNECTION=unsupported\nDB_HOST=localhost\nDB_DATABASE=test\n",
+        "DB_HOST=localhost\nDB_DATABASE=${DATABASE_NAME}\n",
+        "DB_CONNECTION=sqlite\nDB_DATABASE=${DATABASE_PATH}\n",
+        "DB_CONNECTION=sqlite\nDB_DATABASE=\\\\server\\share\\test.db\n",
+        "DB_CONNECTION=sqlite\nDB_DATABASE=backup:memory:\n",
+        "DATABASE_URL=postgres://[::1]garbage/test\n",
+        "DATABASE_URL=postgres://localhost/test/other\n",
+        "DATABASE_URL=postgres://localhost:5432,remote.example:5432/test\n",
         "DATABASE_URL=sqlite:\n",
         "DATABASE_URL=\"sqlite::memory:\n",
         "DATABASE_URL\n",

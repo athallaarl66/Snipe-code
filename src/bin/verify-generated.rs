@@ -9,6 +9,21 @@ use std::path::Path;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // SAFETY: this binary is single-threaded at startup, before project code runs.
+    for key in [
+        "DATABASE_URL",
+        "DB_URL",
+        "DB_CONNECTION",
+        "DB_HOST",
+        "DB_DATABASE",
+        "PGHOST",
+        "PGDATABASE",
+        "PGHOSTADDR",
+        "PGSERVICE",
+        "PGSERVICEFILE",
+    ] {
+        unsafe { env::remove_var(key) };
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

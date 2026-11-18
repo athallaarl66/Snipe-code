@@ -367,11 +367,27 @@ when requested. Each gate reports `passed`, `failed`, `unavailable`, `blocked`, 
 with mixed passed and unavailable/blocked gates has aggregate status `incomplete`.
 
 Before each applicable gate, `verify` previews commands, working directories, and
-known effects, then asks for interactive approval tied to that gate scope. Without
-a terminal or approval, the gate is `blocked`. `install` and `test` also need a
-locally identifiable database target; unknown, remote, or production-like targets
-are blocked. Database values containing credentials are not printed. `--only` limits
-the preview and approval to selected gate.
+known effects, then asks for approval tied to that gate scope. Without a terminal or
+approval, the gate is `blocked`. For install and test gates, detected remote,
+production-like, and ambiguous database targets are blocked before execution. If no
+target is detected, `verify` says the target is unknown and requires approval; that does
+not prove the project avoids a database. Preflight omits database credentials from its
+target summary. `--only` limits preview and approval to the selected gate.
+
+Preflight checks recognized DB environment variables and `.env`, `.env.local`,
+`.env.test`, `.env.test.local`, `.env.testing`, and `.env.testing.local` in each
+gate's directory. It does not inspect every framework configuration or hardcoded target.
+Conflicting dotenv values are blocked, even when an inherited variable overrides them.
+Localhost and a test-like database name do not prove isolation from shared data.
+
+`verify-generated` creates and checks a project in its own temporary workspace. It
+removes recognized inherited database target variables before starting gate commands.
+The workspace is not a sandbox: commands can still access network, hardcoded targets,
+and host files. The harness does not accept a caller-supplied project path.
+
+Paths within a template override must be relative. Generation checks for traversal,
+symlinks, and Windows reparse points before staging, but concurrent changes to the
+override tree can race with these checks.
 
 Exit code:
 

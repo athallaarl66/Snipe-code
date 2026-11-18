@@ -187,6 +187,9 @@ mod tests {
             "DB_DATABASE",
             "PGHOST",
             "PGDATABASE",
+            "PGHOSTADDR",
+            "PGSERVICE",
+            "PGSERVICEFILE",
         ] {
             assert!(removed.iter().any(|name| name == key), "{key}");
         }
