@@ -205,6 +205,7 @@ fn test_audit_structured_output_agrees_with_the_exported_report() {
         stderr.contains("Exported files") && stderr.contains("Audit_Report.md"),
         "the exported-files summary must move to stderr: {stderr}"
     );
+    assert!(stderr.contains("audit writes report files"), "{stderr}");
 }
 
 #[test]
@@ -337,7 +338,7 @@ fn export_rejects_unknown_format_and_missing_output_without_creating_files() {
     assert_eq!(scan_status, Some(0));
     let scan_file = fixture.write("scan.json", &scan_stdout);
 
-    let (_, unknown_stderr, unknown_status) = run(&[
+    let (unknown_stdout, unknown_stderr, unknown_status) = run(&[
         "export",
         scan_file.to_str().unwrap(),
         "--format",
@@ -346,6 +347,7 @@ fn export_rejects_unknown_format_and_missing_output_without_creating_files() {
         fixture.path(),
     ]);
     assert_eq!(unknown_status, Some(3));
+    assert!(unknown_stdout.is_empty(), "{unknown_stdout}");
     assert!(unknown_stderr.contains("unsupported export format"));
     assert!(!fixture.dir.join("Audit_Report.md").exists());
 
@@ -360,6 +362,78 @@ fn export_rejects_unknown_format_and_missing_output_without_creating_files() {
     ]);
     assert_eq!(missing_status, Some(3));
     assert!(missing_stderr.contains("output directory does not exist"));
+    assert!(!missing.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn export_reports_unwritable_output_without_claiming_success() {
+    use std::os::unix::fs::PermissionsExt;
+
+    struct RestorePermissions(PathBuf);
+    impl Drop for RestorePermissions {
+        fn drop(&mut self) {
+            let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o700));
+        }
+    }
+
+    let fixture = Fixture::new("unwritable-export");
+    let input = fixture.write(
+        "scan.json",
+        &serde_json::to_string(&canary_envelope()).unwrap(),
+    );
+    let output = fixture.dir.join("output");
+    fs::create_dir(&output).unwrap();
+    let _restore = RestorePermissions(output.clone());
+    fs::set_permissions(&output, fs::Permissions::from_mode(0o500)).unwrap();
+    let probe = output.join("write-probe");
+    if fs::write(&probe, b"probe").is_ok() {
+        fs::remove_file(probe).unwrap();
+        eprintln!("SKIPPED: current user can write despite directory permissions");
+        return;
+    }
+
+    let (stdout, stderr, status) = run(&[
+        "export",
+        input.to_str().unwrap(),
+        "--format",
+        "md",
+        "--output",
+        output.to_str().unwrap(),
+    ]);
+    assert_eq!(status, Some(3), "{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("export:"), "{stderr}");
+    assert!(!output.join("Audit_Report.md").exists());
+}
+
+#[test]
+fn audit_legacy_formats_json_warning_and_exit_codes() {
+    let fixture = Fixture::new("legacy-audit");
+    fixture.write(".gitignore", ".env\n");
+    let (stdout, stderr, status) =
+        run(&["audit", fixture.path(), "--export", "md,pdf,docx", "--json"]);
+    assert_eq!(status, Some(0), "{stderr}");
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("audit JSON only");
+    assert_eq!(
+        json["exported_files"],
+        serde_json::json!(["Audit_Report.md", "Audit_Report.pdf", "Audit_Report.docx"])
+    );
+    assert!(stderr.contains("audit writes report files"), "{stderr}");
+    for name in ["Audit_Report.md", "Audit_Report.pdf", "Audit_Report.docx"] {
+        assert!(fixture.dir.join(name).is_file(), "missing {name}");
+    }
+
+    let (stdout, stderr, status) = run(&["audit", fixture.path(), "--export", "invalid"]);
+    assert_eq!(status, Some(2), "{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("unsupported export format"), "{stderr}");
+
+    let missing = fixture.dir.join("missing");
+    let (stdout, stderr, status) = run(&["audit", missing.to_str().unwrap(), "--export", "md"]);
+    assert_eq!(status, Some(3), "{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("Audit failed"), "{stderr}");
     assert!(!missing.exists());
 }
 

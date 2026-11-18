@@ -27,6 +27,7 @@ pub struct Options {
 }
 
 pub fn run(options: Options) -> Result<(), String> {
+    crate::template::preflight_override()?;
     if console::Term::stdout().is_term() {
         return interactive_wizard(&options);
     }

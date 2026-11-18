@@ -24,10 +24,117 @@ fn remember(path: &Path) {
     LOCAL_ROOT.with(|slot| *slot.borrow_mut() = Some(path.to_path_buf()));
 }
 
+/// Validate portable relative paths, including Windows forms on Unix hosts.
+pub(crate) fn validate_relative(path: &str) -> Result<(), String> {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty()
+        || path.contains(['\\', ':', '\0'])
+        || trimmed.split('/').any(|part| {
+            part.is_empty() || part == "." || part == ".." || part.ends_with(['.', ' '])
+        })
+    {
+        return Err(format!("invalid template path '{path}'"));
+    }
+    Ok(())
+}
+
+fn is_link(metadata: &std::fs::Metadata) -> bool {
+    #[allow(unused_mut)]
+    let mut link = metadata.file_type().is_symlink();
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        link |= metadata.file_attributes() & 0x400 != 0;
+    }
+    link
+}
+
+/// Reject links anywhere in an override tree before generation reads it.
+pub(crate) fn preflight_override() -> Result<(), String> {
+    fn visit(path: &Path) -> Result<(), String> {
+        let metadata = std::fs::symlink_metadata(path)
+            .map_err(|e| format!("cannot inspect template '{}': {e}", path.display()))?;
+        if is_link(&metadata) {
+            return Err(format!(
+                "template path contains a link: '{}'",
+                path.display()
+            ));
+        }
+        if metadata.is_dir() {
+            for entry in std::fs::read_dir(path)
+                .map_err(|e| format!("cannot inspect template '{}': {e}", path.display()))?
+            {
+                visit(&entry.map_err(|e| e.to_string())?.path())?;
+            }
+        }
+        Ok(())
+    }
+    if let Some(root) = std::env::var_os(OVERRIDE_ENV).map(PathBuf::from) {
+        let absolute = if root.is_absolute() {
+            root.clone()
+        } else {
+            #[cfg(windows)]
+            if matches!(
+                root.components().next(),
+                Some(std::path::Component::Prefix(_))
+            ) {
+                return Err(format!(
+                    "cannot inspect template '{}': drive-relative path",
+                    root.display()
+                ));
+            }
+            std::env::current_dir()
+                .map_err(|e| format!("cannot inspect template '{}': {e}", root.display()))?
+                .join(&root)
+        };
+        for ancestor in absolute.ancestors().collect::<Vec<_>>().into_iter().rev() {
+            match std::fs::symlink_metadata(ancestor) {
+                Ok(metadata) if is_link(&metadata) => {
+                    return Err(format!(
+                        "template path contains a link: '{}'",
+                        ancestor.display()
+                    ));
+                }
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+                Err(e) => {
+                    return Err(format!(
+                        "cannot inspect template '{}': {e}",
+                        ancestor.display()
+                    ));
+                }
+            }
+        }
+        match std::fs::symlink_metadata(&root) {
+            Ok(_) => visit(&root)?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("cannot inspect template '{}': {e}", root.display())),
+        }
+    }
+    Ok(())
+}
+
 /// Reads `templates/<rel>`: the override directory wins per file, the embedded
 /// default is the fallback for anything the override does not provide.
 pub fn read(rel: &str) -> Option<String> {
+    validate_relative(rel).ok()?;
     let local = override_root().and_then(|root| {
+        let mut path = root.clone();
+        if std::fs::symlink_metadata(&path)
+            .ok()
+            .is_some_and(|m| is_link(&m))
+        {
+            return None;
+        }
+        for component in rel.split('/') {
+            path.push(component);
+            match std::fs::symlink_metadata(&path) {
+                Ok(metadata) if is_link(&metadata) => return None,
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+                Err(_) => return None,
+            }
+        }
         std::fs::read_to_string(root.join(rel))
             .ok()
             .map(|text| (root, text))

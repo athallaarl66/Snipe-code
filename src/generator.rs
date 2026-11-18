@@ -132,6 +132,41 @@ fn staging_dir(dest: &Path) -> Result<PathBuf, String> {
 /// (after successful staging). Existing symlinks/junctions are always rejected.
 pub fn generate(config: &GenerateConfig, overwrite: bool) -> Result<GenerateResult, String> {
     validate_project_name(&config.project_name)?;
+    crate::template::preflight_override()?;
+    crate::template::validate_relative(&config.template_id)?;
+    if let Some(template) = crate::template::TemplateRegistry::get(&config.template_id) {
+        for folder in &template.structure.folders {
+            crate::template::validate_relative(folder)?;
+        }
+        for file in &template.structure.files {
+            crate::template::validate_relative(&file.path)?;
+            crate::template::validate_relative(&file.template_source)?;
+        }
+    }
+    for folders in [
+        crate::stack::get_frontend_folders(&config.frontend),
+        crate::stack::get_backend_folders(&config.backend),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for folder in folders {
+            crate::template::validate_relative(&folder)?;
+        }
+    }
+    for files in [
+        crate::stack::get_frontend_files(&config.frontend),
+        crate::stack::get_backend_files(&config.backend),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for file in files {
+            crate::template::validate_relative(&file.path)?;
+        }
+    }
+    crate::ai_tools::plan_selected(&config.ai_tools)?;
+    crate::ai_tools::shared_content()?;
     let dest = resolve_destination(&config.project_name)?;
     if dest.exists() && !overwrite {
         return Err(format!(
