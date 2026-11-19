@@ -231,12 +231,21 @@ fn inherited_database_environment_overrides_dotenv_for_preflight() {
     assert_eq!(report["counts"]["blocked"], 1);
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
-        stderr.contains("database target: local database app_test at localhost"),
+        stderr.contains("database target: local database [redacted] at localhost"),
         "{stderr}"
     );
     assert!(!stderr.contains("db.production.example"), "{stderr}");
     assert!(!stderr.contains("dotenv-secret-canary"), "{stderr}");
 
+    fixture.write(".env.test", "DB_HOST=another.remote.example\n");
+    let output = run_verify_json(&fixture.path, &[("DB_HOST", "localhost")]);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("local database [redacted] at localhost"),
+        "{stderr}"
+    );
+    assert_eq!(output.status.code(), Some(3));
+    fs::remove_file(fixture.path.join(".env.test")).unwrap();
     fixture.write(
         ".env",
         "DB_HOST=localhost\nDB_DATABASE=app_test\nDB_PASSWORD=dotenv-secret-canary\n",
@@ -279,6 +288,38 @@ fn database_url_credentials_and_ambiguous_values_never_reach_reports() {
         for canary in ["user-canary", "password-canary", "secret-canary"] {
             assert!(!stdout.contains(canary), "{stdout}");
             assert!(!stderr.contains(canary), "{stderr}");
+        }
+    }
+}
+
+#[test]
+fn database_target_values_are_redacted_from_previews_and_reports() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"scripts":{"test":"echo test"}}"#);
+    for config in [
+        "DATABASE_URL=postgres://user-canary:password-canary@localhost/name-canary\n",
+        "DB_HOST=localhost\nDB_DATABASE=name-canary\n",
+        "DB_CONNECTION=sqlite\nDB_DATABASE=path-canary.db\n",
+        "DATABASE_URL=sqlite:path-canary.db\n",
+    ] {
+        fixture.write(".env", config);
+        let output = run_verify_json(&fixture.path, &[]);
+        assert_eq!(output.status.code(), Some(3));
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        let report: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(report["counts"]["blocked"], 1);
+        assert!(stderr.contains("[redacted]"), "{stderr}");
+        for canary in [
+            "user-canary",
+            "password-canary",
+            "name-canary",
+            "path-canary",
+        ] {
+            if config.contains(canary) {
+                assert!(!stdout.contains(canary), "{stdout}");
+                assert!(!stderr.contains(canary), "{stderr}");
+            }
         }
     }
 }
@@ -351,6 +392,66 @@ fn verify_generated_rejects_untrusted_template_override() {
             .contains("refuses caller-controlled template overrides")
     );
     assert_eq!(fs::read_dir(&fixture.path).unwrap().count(), 0);
+}
+
+#[test]
+fn generated_harness_autoapproves_only_fresh_project_and_scrubs_db_environment() {
+    let fixture = Fixture::new();
+    let shim = fixture.path.join("shim");
+    fs::create_dir(&shim).unwrap();
+    #[cfg(windows)]
+    fs::write(shim.join("npm.cmd"), "@echo off\r\nif defined DB_HOST exit /b 8\r\nif defined PGHOSTADDR exit /b 9\r\ncd >> \"%SNIPE_TEST_MARKER%\"\r\necho stdout-secret-canary\r\necho stderr-secret-canary 1>&2\r\nexit /b 0\r\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let script = shim.join("npm");
+        fs::write(
+            &script,
+            "#!/bin/sh\n[ -z \"$DB_HOST$PGHOSTADDR\" ] || exit 8\npwd >> \"$SNIPE_TEST_MARKER\"\necho stdout-secret-canary\necho stderr-secret-canary >&2\n",
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let path = std::env::join_paths(
+        std::iter::once(shim).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+    let marker = fixture.path.join("executed-canary");
+    let output = Command::new(env!("CARGO_BIN_EXE_verify-generated"))
+        .args(["--frontend", "react-vite"])
+        .current_dir(&fixture.path)
+        .env("PATH", path)
+        .env("DB_HOST", "remote.example")
+        .env("PGHOSTADDR", "192.0.2.1")
+        .env("SNIPE_TEST_MARKER", &marker)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout} {stderr}");
+    assert!(stdout.contains("not detected"), "{stdout}");
+    assert!(stdout.contains("not a sandbox"), "{stdout}");
+    assert!(stdout.contains("stdout-secret-canary"), "{stdout}");
+    assert!(stderr.contains("stderr-secret-canary"), "{stderr}");
+    let runs = fs::read_to_string(marker).unwrap();
+    assert!(!runs.is_empty());
+    for path in runs.lines() {
+        let directory = std::path::Path::new(path);
+        let project = directory
+            .ancestors()
+            .find(|p| p.file_name().is_some_and(|name| name == "generated-app"))
+            .expect("command outside generated project");
+        assert!(
+            project
+                .parent()
+                .unwrap()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("snipe-verify")
+        );
+        assert!(!project.exists(), "workspace was not cleaned up");
+    }
 }
 
 #[test]

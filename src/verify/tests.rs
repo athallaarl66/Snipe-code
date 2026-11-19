@@ -1,7 +1,8 @@
 //! Gate detection, gate states, and the exit status contract.
 
-use snipe_code::verify::exec::{CommandSpec, RunError};
-use snipe_code::verify::{self, Gate, GateState, Options, PartPlan, Report};
+use super::exec::{CommandSpec, RunError};
+use super::{Gate, GateState, Options, PartPlan, Report, run_with_approval};
+use crate::verify;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -121,7 +122,48 @@ fn approved_run(
     options: &Options,
     runner: verify::Runner<'_>,
 ) -> Result<verify::Report, String> {
-    verify::run_with_approval(root, options, runner, &|_, _, _| true)
+    run_with_approval(root, options, runner, &|_, _, _| true, false)
+}
+
+#[test]
+fn child_output_is_not_in_reports() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"scripts":{"test":"unused"}}"#);
+    let marker = fixture.path.join("child-ran");
+    #[cfg(windows)]
+    let script = format!(
+        "echo stdout-secret-canary & echo stderr-secret-canary 1>&2 & echo ran > \"{}\" & exit /b 7",
+        marker.display()
+    );
+    #[cfg(not(windows))]
+    let script = format!(
+        "echo stdout-secret-canary; echo stderr-secret-canary >&2; echo ran > '{}'; exit 7",
+        marker.display()
+    );
+    fixture.write("child-script.cmd", &script);
+    let runner = |_: &CommandSpec, label: &str| {
+        #[cfg(windows)]
+        let command = CommandSpec::new("cmd.exe", &["/C", "child-script.cmd"], fixture.path());
+        #[cfg(not(windows))]
+        let command = CommandSpec::new("sh", &["child-script.cmd"], fixture.path());
+        super::exec::run_stderr(&command, label)
+    };
+    let options = Options {
+        only: Some(Gate::Test),
+        ..Options::default()
+    };
+    let report = approved_run(fixture.path(), &options, &runner).unwrap();
+    assert!(marker.exists());
+    assert_eq!(report.count("failed"), 1);
+    for text in [
+        verify::render_json(&report).unwrap(),
+        super::report::render_junit(&report),
+        super::report::render_markdown(&report),
+    ] {
+        assert!(!text.contains("stdout-secret-canary"));
+        assert!(!text.contains("stderr-secret-canary"));
+        assert!(text.contains("failed"));
+    }
 }
 
 #[test]
@@ -135,11 +177,12 @@ fn missing_approval_blocks_test_before_runner() {
         skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
-    let report = verify::run_with_approval(
+    let report = run_with_approval(
         fixture.path(),
         &options,
         &fake_runner(&seen, None, None),
         &|_, _, _| false,
+        false,
     )
     .expect("run");
 
@@ -160,7 +203,7 @@ fn unknown_database_requires_approval_and_remote_database_stays_blocked() {
         skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
-    let denied = verify::run_with_approval(
+    let denied = run_with_approval(
         unknown.path(),
         &options,
         &fake_runner(&seen, None, None),
@@ -168,12 +211,13 @@ fn unknown_database_requires_approval_and_remote_database_stays_blocked() {
             assert!(target.unwrap().contains("not detected"));
             false
         },
+        false,
     )
     .expect("unknown target report");
     assert!(seen.borrow().is_empty());
     assert_eq!(denied.count("blocked"), 2);
     assert_eq!(denied.status(), verify::OverallStatus::NoExecution);
-    let approved = verify::run_with_approval(
+    let approved = run_with_approval(
         unknown.path(),
         &options,
         &fake_runner(&seen, None, None),
@@ -181,6 +225,7 @@ fn unknown_database_requires_approval_and_remote_database_stays_blocked() {
             assert!(target.unwrap().contains("not detected"));
             true
         },
+        false,
     )
     .expect("approved unknown target report");
     assert_eq!(approved.count("passed"), 2);
@@ -219,7 +264,7 @@ fn changed_database_scope_after_approval_blocks_before_runner() {
         skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
-    let report = verify::run_with_approval(
+    let report = run_with_approval(
         fixture.path(),
         &options,
         &fake_runner(&seen, None, None),
@@ -227,6 +272,7 @@ fn changed_database_scope_after_approval_blocks_before_runner() {
             fixture.write(".env", "DB_HOST=remote.example\nDB_DATABASE=test\n");
             true
         },
+        false,
     )
     .unwrap();
     assert!(seen.borrow().is_empty());
@@ -281,7 +327,7 @@ fn install_blocks_remote_database_in_test_env_before_approval() {
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let approvals = std::cell::Cell::new(0);
-    let report = verify::run_with_approval(
+    let report = run_with_approval(
         fixture.path(),
         &options,
         &fake_runner(&seen, None, None),
@@ -289,6 +335,7 @@ fn install_blocks_remote_database_in_test_env_before_approval() {
             approvals.set(approvals.get() + 1);
             true
         },
+        false,
     )
     .unwrap();
     assert_eq!(report.count("blocked"), 1);
@@ -309,7 +356,7 @@ fn empty_database_name_blocks_before_approval_or_runner() {
     };
     let seen = std::cell::RefCell::new(Vec::new());
     let approvals = std::cell::Cell::new(0);
-    let report = verify::run_with_approval(
+    let report = run_with_approval(
         fixture.path(),
         &options,
         &fake_runner(&seen, None, None),
@@ -317,6 +364,7 @@ fn empty_database_name_blocks_before_approval_or_runner() {
             approvals.set(approvals.get() + 1);
             true
         },
+        false,
     )
     .unwrap();
     assert_eq!(report.count("blocked"), 1);
@@ -352,7 +400,7 @@ fn ambiguous_database_settings_never_reach_approval_or_runner() {
             };
             let seen = std::cell::RefCell::new(Vec::new());
             let approvals = std::cell::Cell::new(0);
-            let report = verify::run_with_approval(
+            let report = run_with_approval(
                 fixture.path(),
                 &options,
                 &fake_runner(&seen, None, None),
@@ -360,6 +408,7 @@ fn ambiguous_database_settings_never_reach_approval_or_runner() {
                     approvals.set(approvals.get() + 1);
                     true
                 },
+                false,
             )
             .unwrap();
             assert_eq!(report.count("blocked"), 1, "{config}");
@@ -380,7 +429,7 @@ fn changed_npm_script_after_approval_blocks_before_runner() {
         skip_install: false,
     };
     let seen = std::cell::RefCell::new(Vec::new());
-    let report = verify::run_with_approval(
+    let report = run_with_approval(
         fixture.path(),
         &options,
         &fake_runner(&seen, None, None),
@@ -388,6 +437,7 @@ fn changed_npm_script_after_approval_blocks_before_runner() {
             fixture.write("package.json", r#"{"scripts":{"test":"changed"}}"#);
             true
         },
+        false,
     )
     .unwrap();
     assert_eq!(report.count("blocked"), 1);

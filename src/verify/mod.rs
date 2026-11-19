@@ -338,17 +338,23 @@ pub type Runner<'a> = &'a dyn Fn(&CommandSpec, &str) -> Result<(), RunError>;
 ///
 /// `Err` is a usage error: a selector naming a gate that does not apply to the
 /// project. An empty report means nothing recognizable was found.
-pub type Approval<'a> = &'a dyn Fn(&GatePlan, &PartPlan, Option<&str>) -> bool;
+type Approval<'a> = &'a dyn Fn(&GatePlan, &PartPlan, Option<&str>) -> bool;
 
-pub fn run(root: &Path, options: &Options, runner: Runner<'_>) -> Result<Report, String> {
-    run_with_approval(root, options, runner, &approve_interactively)
+/// Run with interactive preview on stderr for machine-readable stdout.
+pub fn run_stderr(root: &Path, options: &Options, runner: Runner<'_>) -> Result<Report, String> {
+    run_with_approval(root, options, runner, &approve_interactively_stderr, false)
 }
 
-pub fn run_with_approval(
+pub fn run(root: &Path, options: &Options, runner: Runner<'_>) -> Result<Report, String> {
+    run_with_approval(root, options, runner, &approve_interactively, false)
+}
+
+fn run_with_approval(
     root: &Path,
     options: &Options,
     runner: Runner<'_>,
     approval: Approval<'_>,
+    generated: bool,
 ) -> Result<Report, String> {
     if !root.is_dir() {
         return Err(format!("{} is not a directory", root.display()));
@@ -381,9 +387,75 @@ pub fn run_with_approval(
             ));
         }
     }
-    let mut report = execute(&plans, options.only, runner, approval);
+    let mut report = execute(&plans, options.only, runner, approval, generated);
     report.root = root.to_path_buf();
     Ok(report)
+}
+
+/// Generate and verify only a fresh harness-owned project using built-in templates.
+pub fn run_generated_project(frontend: &str, backend: &str, database: &str) -> Result<(), String> {
+    if std::env::var_os(crate::template::OVERRIDE_ENV).is_some() {
+        return Err("verify-generated refuses caller-controlled template overrides".to_string());
+    }
+    if !crate::stack::FRONTEND_IDS.contains(&frontend)
+        || !crate::stack::BACKEND_IDS.contains(&backend)
+        || !crate::stack::DATABASE_STACKS
+            .iter()
+            .any(|db| db.id == database)
+        || (frontend == "none" && backend == "none")
+    {
+        return Err("invalid generated project stack selection".to_string());
+    }
+    let workspace = exec::temp_workspace("snipe-verify")?;
+    let result = (|| {
+        let config = crate::generator::GenerateConfig {
+            project_name: "generated-app".to_string(),
+            template_id: "none".to_string(),
+            frontend: frontend.to_string(),
+            backend: backend.to_string(),
+            database: database.to_string(),
+            ai_tools: Vec::new(),
+        };
+        crate::generator::generate_in(&workspace, &config, false)?;
+        let root = workspace.join("generated-app");
+        let options = Options {
+            path: root.clone(),
+            ..Options::default()
+        };
+        let report = run_with_approval(
+            &root,
+            &options,
+            &exec::run_generated,
+            &|gate, part, target| {
+                println!(
+                    "generated workspace is not a sandbox; network, hardcoded targets and filesystem remain accessible"
+                );
+                println!("  gate: {} in {}", gate.gate.name(), part.dir.display());
+                if let Some(target) = target {
+                    println!("  database target: {target}");
+                }
+                true
+            },
+            true,
+        )?;
+        let stack = if backend == "none" { frontend } else { backend };
+        if report.parts.is_empty() {
+            return Err(format!(
+                "unsupported stack {stack}: no verification gates found in {}",
+                root.display()
+            ));
+        }
+        print_report(&report);
+        match report.first_failure() {
+            Some((_, _, _, message)) => Err(format!("{stack}: {message}")),
+            None => match exit_status(&report) {
+                0 => Ok(()),
+                status => Err(format!("{stack}: no gate executed ({status})")),
+            },
+        }
+    })();
+    let cleanup = std::fs::remove_dir_all(&workspace).map_err(|e| e.to_string());
+    result.and(cleanup)
 }
 
 fn approve_interactively(plan: &GatePlan, part: &PartPlan, database_target: Option<&str>) -> bool {
@@ -391,7 +463,7 @@ fn approve_interactively(plan: &GatePlan, part: &PartPlan, database_target: Opti
 }
 
 /// CLI approval callback for invocations whose stdout must remain machine-readable.
-pub fn approve_interactively_stderr(
+fn approve_interactively_stderr(
     plan: &GatePlan,
     part: &PartPlan,
     database_target: Option<&str>,
@@ -449,7 +521,16 @@ fn gate_effects(gate: Gate) -> &'static str {
 fn classify_database_target(
     directory: &Path,
     _gate: Gate,
+    generated: bool,
 ) -> Result<(String, BTreeMap<String, String>), String> {
+    let environment: BTreeMap<_, _> = std::env::vars_os()
+        .filter_map(|(key, value)| {
+            let key = key.to_str()?.to_string();
+            (is_database_setting(&key)
+                && !(generated && exec::GENERATED_CLEARED_DB_KEYS.contains(&key.as_str())))
+            .then(|| (key, value.to_string_lossy().into_owned()))
+        })
+        .collect();
     let mut settings = BTreeMap::new();
     for name in [
         ".env",
@@ -462,6 +543,9 @@ fn classify_database_target(
         match fs::read_to_string(directory.join(name)) {
             Ok(text) => {
                 for (key, value) in parse_env(&text)? {
+                    if environment.contains_key(&key) {
+                        continue;
+                    }
                     if settings
                         .get(&key)
                         .is_some_and(|existing| existing != &value)
@@ -477,17 +561,8 @@ fn classify_database_target(
             }
         }
     }
-    let environment: BTreeMap<_, _> = std::env::vars_os()
-        .filter_map(|(key, value)| {
-            let key = key.to_str()?.to_string();
-            is_database_setting(&key).then(|| (key, value.to_string_lossy().into_owned()))
-        })
-        .collect();
-    for (key, value) in environment {
-        // Process environment is inherited by the gate and overrides values
-        // from dotenv files, so classify the effective value for each key.
-        settings.insert(key, value);
-    }
+    // Inherited process values override the same dotenv key.
+    settings.extend(environment);
     let target = classify_settings(directory, &settings)?;
     Ok((target, settings))
 }
@@ -583,10 +658,7 @@ fn classify_settings(
                     "SQLite target is ambiguous or production-like; gate blocked".to_string(),
                 );
             }
-            return Ok(format!(
-                "local SQLite target {}",
-                database_target_label(directory, target)
-            ));
+            return Ok("local SQLite target [redacted]".to_string());
         }
         if !["postgres://", "postgresql://", "mysql://"]
             .iter()
@@ -636,10 +708,7 @@ fn classify_settings(
         {
             return Err("SQLite target is ambiguous or production-like; gate blocked".to_string());
         }
-        return Ok(format!(
-            "local SQLite target {}",
-            database_target_label(directory, database)
-        ));
+        return Ok("local SQLite target [redacted]".to_string());
     }
 
     let host = settings.get("DB_HOST").or_else(|| settings.get("PGHOST"));
@@ -665,7 +734,7 @@ fn classify_host_database(host: &str, database: &str) -> Result<String, String> 
     ) {
         return Err("remote or ambiguous database host; gate blocked".to_string());
     }
-    Ok(format!("local database {database} at {host}"))
+    Ok(format!("local database [redacted] at {host}"))
 }
 
 fn valid_sqlite_target(target: &str) -> bool {
@@ -750,6 +819,7 @@ fn execute(
     only: Option<Gate>,
     runner: Runner<'_>,
     approval: Approval<'_>,
+    generated: bool,
 ) -> Report {
     let mut parts = Vec::new();
     for plan in plans {
@@ -784,7 +854,7 @@ fn execute(
                 continue;
             }
             let database_target = if matches!(gate, Gate::Install | Gate::Test) {
-                match classify_database_target(&plan.dir, gate) {
+                match classify_database_target(&plan.dir, gate, generated) {
                     Ok(target) => Some(target),
                     Err(reason) => {
                         outcomes.push(GateOutcome {
@@ -839,7 +909,7 @@ fn execute(
                 continue;
             }
             if let Some((_, approved_settings)) = &database_target {
-                match classify_database_target(&plan.dir, gate) {
+                match classify_database_target(&plan.dir, gate, generated) {
                     Ok((_, current_settings)) if current_settings == *approved_settings => {}
                     _ => {
                         outcomes.push(GateOutcome {
@@ -862,7 +932,7 @@ fn execute(
                         && part.gates.iter().any(|candidate| candidate == planned)
                 });
                 let database_matches = database_target.as_ref().is_none_or(|(_, settings)| {
-                    classify_database_target(&plan.dir, gate)
+                    classify_database_target(&plan.dir, gate, generated)
                         .is_ok_and(|(_, current)| current == *settings)
                 });
                 let manifest_matches = npm_manifest.as_ref().is_none_or(|approved| {
@@ -1016,7 +1086,7 @@ mod database_safety_tests {
         let root = std::env::temp_dir().join(format!("snipe-env-invalid-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join(".env"), [0xff]).unwrap();
-        let error = classify_database_target(&root, Gate::Test).unwrap_err();
+        let error = classify_database_target(&root, Gate::Test, false).unwrap_err();
         assert!(error.contains("could not be read"));
         fs::remove_dir_all(root).unwrap();
     }
@@ -1035,7 +1105,7 @@ mod database_safety_tests {
             "DB_HOST=localhost\nDB_DATABASE=test\n",
         )
         .unwrap();
-        assert!(classify_database_target(&root, Gate::Test).is_err());
+        assert!(classify_database_target(&root, Gate::Test, false).is_err());
         fs::remove_dir_all(root).unwrap();
         for key in ["PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"] {
             let settings = BTreeMap::from([
@@ -1115,3 +1185,6 @@ mod database_safety_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

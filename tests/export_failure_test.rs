@@ -11,11 +11,14 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         loop {
-            let dir = std::env::temp_dir().join(format!(
-                "snipe-export-failure-{}-{}",
-                std::process::id(),
-                SEQ.fetch_add(1, Ordering::Relaxed)
-            ));
+            let dir = std::env::var_os("TMPDIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir)
+                .join(format!(
+                    "snipe-export-failure-{}-{}",
+                    std::process::id(),
+                    SEQ.fetch_add(1, Ordering::Relaxed)
+                ));
             match fs::create_dir(&dir) {
                 Ok(()) => return Self(dir),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -107,6 +110,41 @@ fn existing_report_blocks_all_requested_exports_without_success_claim() {
     let output = fixture.export(&scan, "md,pdf", &destination);
     assert_export_failure(&output, "output already exists");
     assert_eq!(fs::read(existing).unwrap(), b"keep existing report");
+    assert!(!destination.join("Audit_Report.md").exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn unwritable_directory_reports_write_failure() {
+    struct RemoveDeny(PathBuf);
+    impl Drop for RemoveDeny {
+        fn drop(&mut self) {
+            let status = Command::new("icacls.exe")
+                .arg(&self.0)
+                .args(["/remove:d", "*S-1-1-0"])
+                .status()
+                .expect("remove fixture deny ACL");
+            assert!(status.success(), "remove fixture deny ACL: {status}");
+        }
+    }
+
+    let fixture = Fixture::new();
+    let scan = fixture.scan();
+    let destination = fixture.0.join("output");
+    fs::create_dir(&destination).unwrap();
+    let status = Command::new("icacls.exe")
+        .arg(&destination)
+        .args(["/deny", "*S-1-1-0:(WD,AD)"])
+        .status()
+        .expect("set fixture deny ACL");
+    assert!(status.success(), "set fixture deny ACL: {status}");
+    let _restore = RemoveDeny(destination.clone());
+
+    let error = fs::write(destination.join("probe"), b"probe").expect_err("probe must fail");
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    assert_eq!(error.raw_os_error(), Some(5));
+    let output = fixture.export(&scan, "md", &destination);
+    assert_export_failure(&output, "os error 5");
     assert!(!destination.join("Audit_Report.md").exists());
 }
 

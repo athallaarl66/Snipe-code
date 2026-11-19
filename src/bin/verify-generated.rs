@@ -1,11 +1,8 @@
 //! Generates a project for one stack and verifies it through the shared
 //! verification engine, so CI exercises the same code path users run.
 
-use snipe_code::generator::{GenerateConfig, generate_in};
-use snipe_code::verify::{self, Options};
+use snipe_code::verify;
 use std::env;
-use std::fs;
-use std::path::Path;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -58,69 +55,5 @@ fn run() -> Result<(), String> {
         return Err("select --frontend or --backend".to_string());
     }
 
-    let workspace = verify::exec::temp_workspace("snipe-verify")?;
-    let result = generate_and_verify(&workspace, frontend, backend, database);
-    let cleanup = fs::remove_dir_all(&workspace).map_err(|e| e.to_string());
-    result.and(cleanup)
-}
-
-fn generate_and_verify(
-    workspace: &Path,
-    frontend: &str,
-    backend: &str,
-    database: &str,
-) -> Result<(), String> {
-    let config = GenerateConfig {
-        project_name: "generated-app".to_string(),
-        template_id: "none".to_string(),
-        frontend: frontend.to_string(),
-        backend: backend.to_string(),
-        database: database.to_string(),
-        ai_tools: Vec::new(),
-    };
-    generate_in(workspace, &config, false)?;
-    verify_generated(&workspace.join("generated-app"), frontend, backend)
-}
-
-/// Runs the generated project through the engine and keeps the requested stack
-/// in the failure message.
-fn verify_generated(root: &Path, frontend: &str, backend: &str) -> Result<(), String> {
-    let options = Options {
-        path: root.to_path_buf(),
-        only: None,
-        security: false,
-        skip_install: false,
-    };
-    // This harness created the disposable workspace and generated this project;
-    // no caller-supplied path reaches this approval callback.
-    let report = verify::run_with_approval(
-        root,
-        &options,
-        &verify::exec::run_generated,
-        &|gate, part, target| {
-            println!(
-                "generated workspace is not a sandbox; network, hardcoded targets and filesystem remain accessible"
-            );
-            println!("  gate: {} in {}", gate.gate.name(), part.dir.display());
-            if let Some(target) = target {
-                println!("  database target: {target}");
-            }
-            true
-        },
-    )?;
-    let stack = if backend == "none" { frontend } else { backend };
-    if report.parts.is_empty() {
-        return Err(format!(
-            "unsupported stack {stack}: no verification gates found in {}",
-            root.display()
-        ));
-    }
-    verify::print_report(&report);
-    match report.first_failure() {
-        Some((_, _, _, message)) => Err(format!("{stack}: {message}")),
-        None => match verify::exit_status(&report) {
-            0 => Ok(()),
-            status => Err(format!("{stack}: no gate executed ({status})")),
-        },
-    }
+    verify::run_generated_project(frontend, backend, database)
 }

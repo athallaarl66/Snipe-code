@@ -803,12 +803,7 @@ fn run_verify_cmd(args: &[String]) {
         &verify::exec::run
     };
     let report = match if json || request.is_some() {
-        verify::run_with_approval(
-            &options.path,
-            &options,
-            runner,
-            &verify::approve_interactively_stderr,
-        )
+        verify::run_stderr(&options.path, &options, runner)
     } else {
         verify::run(&options.path, &options, runner)
     } {

@@ -377,8 +377,14 @@ target summary. `--only` limits preview and approval to the selected gate.
 Preflight checks recognized DB environment variables and `.env`, `.env.local`,
 `.env.test`, `.env.test.local`, `.env.testing`, and `.env.testing.local` in each
 gate's directory. It does not inspect every framework configuration or hardcoded target.
-Conflicting dotenv values are blocked, even when an inherited variable overrides them.
+Inherited environment values take precedence for the same key; conflicting unoverridden
+dotenv values are blocked.
 Localhost and a test-like database name do not prove isolation from shared data.
+
+Install may download dependencies, write files, and run install hooks. Tests may write
+files, access databases, or use the network. Lint, typecheck, and build commands may
+write files or use the network; security commands may query vulnerability data. Child
+command output can contain secrets, even when the preflight target summary omits them.
 
 `verify-generated` creates and checks a project in its own temporary workspace. It
 removes recognized inherited database target variables before starting gate commands.

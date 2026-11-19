@@ -82,20 +82,22 @@ pub fn run_generated(spec: &CommandSpec, label: &str) -> Result<(), RunError> {
     run_process(&mut generated_command(spec), spec)
 }
 
+pub(super) const GENERATED_CLEARED_DB_KEYS: &[&str] = &[
+    "DATABASE_URL",
+    "DB_URL",
+    "DB_CONNECTION",
+    "DB_HOST",
+    "DB_DATABASE",
+    "PGHOST",
+    "PGDATABASE",
+    "PGHOSTADDR",
+    "PGSERVICE",
+    "PGSERVICEFILE",
+];
+
 fn generated_command(spec: &CommandSpec) -> Command {
     let mut child = command(spec);
-    for key in [
-        "DATABASE_URL",
-        "DB_URL",
-        "DB_CONNECTION",
-        "DB_HOST",
-        "DB_DATABASE",
-        "PGHOST",
-        "PGDATABASE",
-        "PGHOSTADDR",
-        "PGSERVICE",
-        "PGSERVICEFILE",
-    ] {
+    for key in GENERATED_CLEARED_DB_KEYS {
         child.env_remove(key);
     }
     child
