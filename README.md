@@ -8,35 +8,42 @@ A Rust CLI that scaffolds projects, reads an existing codebase, and audits it fo
 security risks. Core scaffolding and analysis do not require an AI service or API key.
 Verification runs external project commands, which may access the network.
 
-This checkout is preparing version `0.6.0`. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
-The version is not published yet.
+This checkout is version `0.6.0`. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-Current distribution status, checked 2026-10-21: release `v0.5.3` publishes an archive for
-all four targets with a checksum and a cosign bundle each, crate `0.5.3` is on crates.io,
-and the container image carries the `v0.5.3` tag. The installer scripts ship in this
-repository and inside the archives, but they have not been run against this release on
-every platform. If a scripted install fails, build from source below.
+Distribution status checked 2026-11-19: GitHub release `v0.6.0` is published but
+has no binary assets. Its Windows and Linux archive URLs return 404, so the default
+latest-release installers cannot install it yet. Check the
+[release assets](https://github.com/athallaarl66/Snipe-code/releases/tag/v0.6.0)
+again, or use the local build below. The newest crate on crates.io is `0.5.3`, not
+`0.6.0`; the container's `v0.5.3` tag was checked on 2026-10-21.
 
 ## Install
 
 ### Shell installer
 
-The no Rust toolchain channel. It reads the latest release, so it installs `v0.5.3`
-today. Read the script before running it; nothing is piped into a shell.
+The no Rust toolchain channel requires a release with the matching archive and
+checksum. By default it reads the latest release; while `v0.6.0` has no assets, use
+[Build from source](#build-from-source) instead. When assets are available, download
+the script into the current directory, inspect it, then run that same file.
 
 Linux and macOS:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/athallaarl66/Snipe-code/main/install.sh | less
-bash install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/athallaarl66/Snipe-code/main/install.sh
+less install.sh
+bash ./install.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/athallaarl66/Snipe-code/main/install.ps1 | more
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/athallaarl66/Snipe-code/main/install.ps1 -OutFile .\install.ps1
+Get-Content .\install.ps1
 .\install.ps1
 ```
+
+If PowerShell blocks scripts under its execution policy, review the policy and script;
+do not bypass it blindly. The source-build EXE below does not require running the installer.
 
 The installer downloads the release archive to a temporary directory, checks the
 published SHA-256 checksum, checks the cosign bundle when `cosign` is installed, and
@@ -76,17 +83,28 @@ cd Snipe-code
 cargo build --release
 ```
 
-The binary lands in `target/release/snipe-code` (`.exe` on Windows) and is portable,
-so you can copy it anywhere. `target/` can reach hundreds of megabytes; once the
-binary is copied out, `cargo clean` reclaims it.
+For a release asset 404, build the desired checkout locally instead; the installer
+does not fall back automatically. If the repository is already cloned and
+`cargo build --release` succeeded, do not clone or rebuild again. Building requires a
+Rust toolchain and may need network access for dependencies.
+
+The binary lands in `target/release/snipe-code` (`.exe` on Windows). Copy it if
+needed, but the destination must support the binary's platform and runtime dependencies.
+`target/` can reach hundreds of megabytes; after copying the binary, `cargo clean`
+removes build artifacts.
 
 Cargo does not put that binary on `PATH`, so typing `snipe-code` in a fresh shell
 still fails with `'snipe-code' is not recognized as an internal or external command`.
 Run it by path from the checkout:
 
 ```powershell
-.\target\release\snipe-code.exe faq
+./target/release/snipe-code.exe --version
+./target/release/snipe-code.exe faq
 ```
+
+PowerShell needs an explicit path to run an executable outside PATH. For a path with
+spaces, use the call operator: `& "C:/path with spaces/snipe-code.exe"`. The relative
+path above only works from the checkout root.
 
 ```bash
 ./target/release/snipe-code faq
@@ -108,6 +126,28 @@ flag is required: a plain `cargo install --path .` re-resolves dependencies, fin
 repository's `Cargo.lock` instead and succeeds. Like any `cargo install`, it takes a snapshot: re-run it after changing
 the code, or keep using `cargo run`.
 
+### First manual check on a disposable project
+
+In PowerShell, from the checkout root, point the built EXE at a separate test
+project. Replace the example path with an existing disposable project directory;
+these commands do not create it:
+
+```powershell
+$exe = (Resolve-Path ./target/release/snipe-code.exe).Path
+$project = "C:/path/to/disposable-project"
+& $exe --version
+& $exe analyze $project
+& $exe scan $project
+```
+
+Confirm the version prints, analysis includes project structure and Limits, and the
+scan finishes; review findings and coverage limits rather than treating no findings as
+proof of safety. `analyze` is read-only; `scan` does not save history without
+`--save`. To run from inside the test project, use `Set-Location $project` and the
+same `& $exe analyze .` or `& $exe scan .` commands. Do not start with `audit` or
+`verify`: audit writes reports, while verify executes project commands that may write
+files, reach the network, or access databases.
+
 ### Uninstall
 
 Delete the binary the installer placed, or run `cargo uninstall snipe-code` if you
@@ -115,9 +155,11 @@ installed through cargo. No registry keys or system files are touched.
 
 ## Commands
 
-Run `snipe-code` in an interactive terminal to choose a goal: Create a new
+Run `snipe-code` in an interactive terminal to see the ASCII SNIPE-CODE banner,
+compiled version, author Athalla, and quick commands: `new`, `analyze`, `scan`,
+`verify`, and `help`. The launcher then lets you choose a goal: Create a new
 project, Understand an existing project, Run tests and quality checks, Audit project
-security, View help, or Exit. Security offers scan, export, history, and legacy audit;
+security, View help, Install global AI skill, or Exit. Security offers scan, export, history, and legacy audit;
 legacy audit writes reports into the target. With no interactive terminal, a bare
 `snipe-code` prints usage and exits `2` without starting an operation.
 
@@ -133,6 +175,7 @@ Direct commands bypass the launcher, including `new`, `analyze`, `audit`, and
 | `snipe-code scan [PATH] [--json] [--save]` | Read-only audit; `--save` stores versioned JSON locally |
 | `snipe-code export <scan.json> --format <md,pdf,docx> --output <DIR>` | Export saved scan result to explicit directory |
 | `snipe-code history` | Manage locally saved scan runs; export writes JSON |
+| `snipe-code skill [AGENT] [--install]` | Preview or install global AI agent instructions |
 | `snipe-code verify [PATH]` | Runs the quality gates the project declares |
 | `snipe-code quality [PATH] --config <FILE>` | Versioned quality gates; see quality gate configuration below |
 | `snipe-code version` | The compiled version (alias `--version`) |
@@ -149,6 +192,7 @@ Direct commands bypass the launcher, including `new`, `analyze`, `audit`, and
 | `scan [PATH] [--json] [--save]` | anywhere | project files | JSON on stdout; history DB only with `--save` | `0`, `2`, `3` |
 | `export <scan.json> --format <formats> --output <DIR>` | anywhere | versioned scan result | selected report files inside `DIR` | `0`, `2`, `3` |
 | `history` | anywhere | local history DB | JSON file for export; DB for delete | `0`, `2`, `3` |
+| `skill [AGENT] [--install]` | anywhere | embedded skill instructions and home environment | nothing on preview; skill directory and file on install | `0`, `2`, `3` |
 | `verify [PATH]` | the project directory, or point `PATH` at it | manifests | an explicit report when requested; gates may write into the project | `0`, `1`, `2`, `3`, `4` |
 | `help`, `version`, `faq` | anywhere | nothing | nothing | `0` |
 
@@ -534,11 +578,99 @@ valid. Example: only `frontends/nextjs/files/package.json` to bump a dependency
 version. The `new` output names the source it used, `Templates: local templates from
 <dir>` or `Templates: built-in templates`.
 
+## Global AI skill
+
+The global skill is separate from project-local `new --ai-tools` artifacts. It installs
+instructions for a host AI agent; `snipe-code` itself is a deterministic CLI, not a
+model or test author. Installation neither starts an agent nor guarantees discovery;
+use the agent's skill discovery or invocation mechanism and ask it to use the
+`snipe-code` skill. Check the agent's documentation for its exact invocation syntax.
+The skill asks the agent to check CLI help for the installed version.
+
+After the agent discovers the skill, invocation depends on the host:
+
+- Claude Code: start a prompt with `/snipe-code` ([skills documentation](https://code.claude.com/docs/en/skills)).
+- Codex CLI or IDE extension: mention `$snipe-code`, or select it with `/skills`
+  ([skills documentation](https://developers.openai.com/codex/skills)).
+- OpenCode: ask the agent to load the `snipe-code` skill through its skill tool
+  ([skills documentation](https://opencode.ai/docs/skills/)).
+- Hermes: ask the agent to load the `snipe-code` skill in the selected profile;
+  discovery depends on that profile's configuration.
+- Cursor, GitHub Copilot, Windsurf, Antigravity, and Gemini CLI: ask the agent to
+  use the `snipe-code` skill; consult its documentation for discovery and invocation.
+
+These are agent prompts, not `snipe-code` shell commands. Names can conflict with
+other skills; verify the selected skill and its location before use.
+
+In an interactive terminal, run `snipe-code` and select **Install global AI skill**,
+or run `snipe-code skill`. Choose an agent, review the displayed destination, then
+confirm installation; confirmation defaults to no. Without a terminal, `skill` with
+no agent prints usage and exits `2`. Direct commands work without prompts:
+
+```bash
+snipe-code skill claude             # preview destination only; no writes
+snipe-code skill claude --install   # install after reviewing destination
+snipe-code help skill
+```
+
+Replace `claude` with the agent ID below. Paths show the installed `SKILL.md`;
+`<home>` is `USERPROFILE` on Windows or `HOME` elsewhere. The relevant home must be
+nonempty and absolute, including for preview.
+
+| Agent ID | Destination |
+| --- | --- |
+| `claude` | `<home>/.claude/skills/snipe-code/SKILL.md` |
+| `opencode` | `<home>/.config/opencode/skills/snipe-code/SKILL.md` |
+| `codex` | `<home>/.agents/skills/snipe-code/SKILL.md` |
+| `hermes` | `<HERMES_HOME>/skills/snipe-code/SKILL.md` |
+| `cursor` | `<home>/.cursor/skills/snipe-code/SKILL.md` |
+| `github-copilot` | `<home>/.copilot/skills/snipe-code/SKILL.md` |
+| `windsurf` | `<home>/.codeium/windsurf/skills/snipe-code/SKILL.md` |
+| `antigravity` | `<home>/.gemini/config/skills/snipe-code/SKILL.md` |
+| `gemini-cli` | `<home>/.gemini/skills/snipe-code/SKILL.md` |
+
+For Hermes, set `HERMES_HOME` to the absolute home directory of the intended profile
+before preview or install; it does not fall back to `HOME` or `USERPROFILE`. For
+example, in PowerShell:
+
+```powershell
+$env:HERMES_HOME = 'C:/path/to/hermes/profile'
+snipe-code skill hermes
+snipe-code skill hermes --install
+```
+
+Install creates parent directories and a new `snipe-code/SKILL.md`. An existing
+`snipe-code` directory causes failure, even if empty; it is never overwritten. A
+failed write can leave a partial file or parent directories: inspect them before retrying.
+Invalid arguments exit `2`; home resolution, selection, or installation errors exit `3`.
+
+The skill guides the agent through scaffolding, source tracing, security review,
+verification, and test automation. With requested and approved test edits, the AI
+agent may author tests using the project's existing framework; `verify` only runs
+existing project commands and does not write tests. Test execution requires separate
+approval and review of commands, database targets, isolation, and network effects.
+`analyze` and default `scan` are read-only; `scan --save` writes history, `new` writes
+a project, and `audit` writes reports that may replace existing reports. `verify`
+executes project-controlled commands that may change files or access networks or
+databases; `--no-install` does not make other gates safe. Instructions are not a
+permission boundary, and outcomes depend on the host agent.
+
 ## AI agent tools
 
-Selected integrations add project-local instructions. They do not start a model,
-authenticate a provider, or store credentials. Agent behavior and discovery depend on
-the agent; generated instructions are not a runtime permission boundary.
+In interactive `snipe-code new`, at `[6/8] AI integrations`, use Space to select
+zero or more tools and Enter to continue. Choose Continue, Back, or Cancel on the
+next prompt. Alternatively, use `--ai-tools` with comma-separated registry IDs, or
+`--ai-tools none` to select none. Without a terminal or `--ai-tools`, no integrations
+are selected.
+
+Selected integrations add files inside the generated project, not to global agent
+configuration. Each tool receives different artifact types and paths as listed below;
+selecting one does not install the tool. They do not start a model, authenticate a
+provider, store credentials, or require an API key. Agent behavior and discovery
+depend on the agent; generated instructions are not a runtime permission boundary.
+In particular, generating Hermes skill files does not guarantee Hermes will discover or
+load them automatically; check the Hermes configuration and discovery rules for your
+installation.
 
 | Tool | Rules | Skills | Commands | Workflows |
 | --- | --- | --- | --- | --- |

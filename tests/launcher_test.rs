@@ -107,22 +107,26 @@ def run(steps, exit_code=0):
 
 menu = 'What would you like to do?'
 down = '\x1b[B'
-run([(menu, '\x1b')])
+run([('SNIPE-CODE v', None), ('Author: Athalla', None), ('Quick commands:', None),
+     (menu, '\x1b')])
 assert os.listdir(root) == [], os.listdir(root)
-run([(menu, down * 5 + '\r')])
+run([(menu, down * 6 + '\r')])
 assert os.listdir(root) == [], os.listdir(root)
-run([(menu, '\r'), ('[1/8]', '\x1b'), ('Cancelled', None), (menu, down * 5 + '\r')])
+run([(menu, down * 5 + '\r'), ('Choose AI for global skill', '\x1b'),
+     (menu, down * 6 + '\r')])
+assert os.listdir(root) == [], os.listdir(root)
+run([(menu, '\r'), ('[1/8]', '\x1b'), ('Cancelled', None), (menu, down * 6 + '\r')])
 run([(menu, down * 2 + '\r'), ('not a sandbox', None), ('Project path', '\r')], 3)
-run([(menu, down * 4 + '\r'), ('USAGE', None), (menu, down * 5 + '\r')])
+run([(menu, down * 4 + '\r'), ('USAGE', None), (menu, down * 6 + '\r')])
 run([(menu, down * 3 + '\r'), ('Security operation', down * 4 + '\r'),
-     (menu, down * 5 + '\r')])
+     (menu, down * 6 + '\r')])
 run([(menu, down * 3 + '\r'), ('Security operation', down * 3 + '\r'),
      ('Project path', '\r'), ('Select report formats', '\x1b'),
-     ('Audit cancelled', None), (menu, down * 5 + '\r')])
+     ('Audit cancelled', None), (menu, down * 6 + '\r')])
 run([(menu, down + '\r'), ('Project path', '\r'), ('Target: .', None),
-     (menu, down * 5 + '\r')])
+     (menu, down * 6 + '\r')])
 run([(menu, down * 3 + '\r'), ('Security operation', '\r'),
-     ('Project path', '\r'), ('Target: .', None), (menu, down * 5 + '\r')])
+     ('Project path', '\r'), ('Target: .', None), (menu, down * 6 + '\r')])
 assert os.listdir(root) == [], os.listdir(root)
 "#;
     let output = Command::new("python")
