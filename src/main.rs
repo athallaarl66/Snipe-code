@@ -803,12 +803,7 @@ fn run_verify_cmd(args: &[String]) {
         &verify::exec::run
     };
     let report = match if json || request.is_some() {
-        verify::run_with_approval(
-            &options.path,
-            &options,
-            runner,
-            &verify::approve_interactively_stderr,
-        )
+        verify::run_stderr(&options.path, &options, runner)
     } else {
         verify::run(&options.path, &options, runner)
     } {
@@ -1089,8 +1084,10 @@ OPTIONS
 SAFETY
     Gates show commands, directories, and known effects before approval.
     Without interactive approval, gates are blocked. Install and test gates
-    also block unknown, remote, and production-like database targets.
-    Preflight does not sandbox project commands or prove all their effects.
+    block explicit remote, production-like, or ambiguous database targets.
+    An undetected target is unknown and requires explicit approval; it is not
+    proof that the project avoids databases. Preflight does not sandbox project
+    commands or prove all their effects.
 
 EXIT STATUS
     0   all applicable gates passed

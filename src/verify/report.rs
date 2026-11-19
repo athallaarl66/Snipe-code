@@ -200,6 +200,8 @@ fn xml(value: &str) -> String {
 }
 
 pub fn render_junit(report: &Report) -> String {
+    let report = super::display_report(report);
+    let report = &report;
     let tests: usize = report.parts.iter().map(|p| p.outcomes.len()).sum();
     let failures = report.count("failed");
     let skipped =
@@ -241,6 +243,8 @@ fn md(value: &str) -> String {
 }
 
 pub fn render_markdown(report: &Report) -> String {
+    let report = super::display_report(report);
+    let report = &report;
     let mut out = format!(
         "# Verification report\n\nTarget: {}\n\n",
         md(&report.root.to_string_lossy())
