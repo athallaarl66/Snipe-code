@@ -97,16 +97,11 @@ fn test_release_validation_is_derived_from_the_target_list() {
 
 #[test]
 fn test_documented_platforms_match_the_built_targets() {
-    let technical = repo_file("docs/features/technical.md");
     let readme = repo_file("README.md");
 
     for entry in release_targets()["targets"].as_array().expect("targets") {
         let target = entry["target"].as_str().expect("target");
         let platform = entry["platform"].as_str().expect("platform");
-        assert!(
-            technical.contains(target),
-            "technical.md must document the built target {target}"
-        );
         assert!(
             readme.contains(target),
             "README must document the built target {target}"
@@ -118,7 +113,7 @@ fn test_documented_platforms_match_the_built_targets() {
     }
 
     assert!(
-        !technical.contains("snipe-code-macos-arm64\n"),
+        !readme.contains("snipe-code-macos-arm64\n"),
         "the stale archive name must be replaced by the real one"
     );
     assert_eq!(

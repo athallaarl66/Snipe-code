@@ -8,6 +8,9 @@ A Rust CLI that scaffolds projects, reads an existing codebase, and audits it fo
 security risks. Core scaffolding and analysis do not require an AI service or API key.
 Verification runs external project commands, which may access the network.
 
+This checkout is preparing version `0.6.0`. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+The version is not published yet.
+
 Current distribution status, checked 2026-10-21: release `v0.5.3` publishes an archive for
 all four targets with a checksum and a cosign bundle each, crate `0.5.3` is on crates.io,
 and the container image carries the `v0.5.3` tag. The installer scripts ship in this
@@ -131,7 +134,7 @@ Direct commands bypass the launcher, including `new`, `analyze`, `audit`, and
 | `snipe-code export <scan.json> --format <md,pdf,docx> --output <DIR>` | Export saved scan result to explicit directory |
 | `snipe-code history` | Manage locally saved scan runs; export writes JSON |
 | `snipe-code verify [PATH]` | Runs the quality gates the project declares |
-| `snipe-code quality [PATH] --config <FILE>` | Versioned quality gates; see `docs/features/quality-gates.md` |
+| `snipe-code quality [PATH] --config <FILE>` | Versioned quality gates; see quality gate configuration below |
 | `snipe-code version` | The compiled version (alias `--version`) |
 | `snipe-code help [command]` | General help and per-command help |
 | `snipe-code faq` | Install, uninstall, troubleshooting |
@@ -340,6 +343,60 @@ The audit is heuristic. The report names the detected contexts, the rule groups 
 ran, and the excluded paths. "No findings detected by evaluated rules" does not prove
 a project is safe.
 
+## Quality gate configuration
+
+The static scan does not compute coverage. Supply an LCOV report with `--coverage` to import it.
+
+<!-- quality-config-example -->
+```json
+{
+  "version": 1,
+  "enabled": true,
+  "metrics": [
+    {
+      "id": "rust-function-lines",
+      "version": 1,
+      "unit": "lines",
+      "required": true,
+      "comparison": "maximum",
+      "threshold": 100,
+      "unknown": "unknown",
+      "exclusions": ["src/generated"]
+    },
+    {
+      "id": "rust-duplicate-blocks",
+      "version": 1,
+      "unit": "blocks",
+      "required": true,
+      "comparison": "maximum",
+      "threshold": 20,
+      "unknown": "fail",
+      "exclusions": []
+    },
+    {
+      "id": "lcov-line-coverage",
+      "version": 1,
+      "unit": "basis-points",
+      "required": false,
+      "comparison": "minimum",
+      "threshold": 6000,
+      "unknown": "unknown",
+      "exclusions": []
+    },
+    {
+      "id": "new-findings",
+      "version": 1,
+      "unit": "findings",
+      "required": false,
+      "comparison": "maximum",
+      "threshold": 0,
+      "unknown": "unknown",
+      "exclusions": []
+    }
+  ]
+}
+```
+
 ## verify: run the project's own gates
 
 ```bash
@@ -379,6 +436,13 @@ Preflight checks recognized DB environment variables and `.env`, `.env.local`,
 gate's directory. It does not inspect every framework configuration or hardcoded target.
 Inherited environment values take precedence for the same key; conflicting unoverridden
 dotenv values are blocked.
+Child output is filtered for recognized DB usernames and passwords from the process
+environment and six `.env` variants in the gate directory, including URL userinfo,
+percent-decoded forms, uniformly upper- or lowercase percent escapes, and JSON string
+escaping. Mixed-case escapes, unknown credential sources,
+other encodings, child-created or transformed secrets are not guaranteed to be masked.
+Do not place secrets in command arguments or paths; review output before sharing.
+
 Localhost and a test-like database name do not prove isolation from shared data.
 
 Install may download dependencies, write files, and run install hooks. Tests may write

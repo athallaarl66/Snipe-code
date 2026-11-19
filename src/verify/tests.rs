@@ -1079,3 +1079,48 @@ fn no_install_with_only_install_is_a_usage_error() {
     assert!(flag_only.skip_install);
     assert_eq!(flag_only.only, None);
 }
+
+#[test]
+fn redacted_database_target_collision_still_blocks_changed_scope() {
+    let fixture = Fixture::new();
+    fixture.write("package.json", r#"{"scripts":{"test":"vitest run"}}"#);
+    fixture.write(
+        ".env",
+        "DB_CONNECTION=sqlite
+DB_DATABASE=first-test.db
+",
+    );
+    let options = Options {
+        path: fixture.path().to_path_buf(),
+        only: Some(Gate::Test),
+        security: false,
+        skip_install: false,
+    };
+    let seen = std::cell::RefCell::new(Vec::new());
+    let report = run_with_approval(
+        fixture.path(),
+        &options,
+        &fake_runner(&seen, None, None),
+        &|_, _, target| {
+            assert_eq!(target, Some("local SQLite target [redacted]"));
+            fixture.write(
+                ".env",
+                "DB_CONNECTION=sqlite
+DB_DATABASE=second-test.db
+",
+            );
+            true
+        },
+        false,
+    )
+    .unwrap();
+    assert_eq!(report.count("blocked"), 1);
+    assert!(seen.borrow().is_empty());
+    assert!(
+        report.parts[0].outcomes[0]
+            .state
+            .detail()
+            .unwrap()
+            .contains("scope changed")
+    );
+}

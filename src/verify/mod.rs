@@ -477,7 +477,9 @@ fn approve_interactively_to(
     database_target: Option<&str>,
     stderr: bool,
 ) -> bool {
+    let secrets = exec::database_credentials(&part.dir);
     let line = |text: String| {
+        let text = exec::redact(&text, &secrets);
         if stderr {
             eprintln!("{text}");
         } else {
@@ -978,8 +980,36 @@ fn execute(
     }
 }
 
+fn display_report(report: &Report) -> Report {
+    let mut secrets = exec::database_credentials(&report.root);
+    for part in &report.parts {
+        secrets.extend(exec::database_credentials(&report.root.join(&part.label)));
+    }
+    secrets.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    secrets.dedup();
+    let clean = |value: &str| exec::redact(value, &secrets);
+    let mut result = report.clone();
+    result.root = PathBuf::from(clean(&report.root.to_string_lossy()));
+    for part in &mut result.parts {
+        part.label = clean(&part.label);
+        for outcome in &mut part.outcomes {
+            outcome.command = clean(&outcome.command);
+            match &mut outcome.state {
+                GateState::Failed(value)
+                | GateState::Blocked(value)
+                | GateState::NotApplicable(value)
+                | GateState::Unavailable(value) => *value = clean(value),
+                GateState::Passed => {}
+            }
+        }
+    }
+    result
+}
+
 /// Prints the per-gate report and a single overall result.
 pub fn print_report(report: &Report) {
+    let report = display_report(report);
+    let report = &report;
     println!("verify: {}", report.root.display());
     for part in &report.parts {
         println!("  [{}] {}", part.label, part.ecosystem);
@@ -1001,6 +1031,8 @@ pub fn print_report(report: &Report) {
 }
 
 pub fn render_json(report: &Report) -> Result<String, String> {
+    let report = display_report(report);
+    let report = &report;
     let parts: Vec<_> = report
         .parts
         .iter()
