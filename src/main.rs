@@ -1,3 +1,5 @@
+mod global_skill;
+
 use std::io::IsTerminal;
 use std::path::Path;
 
@@ -39,6 +41,7 @@ fn dispatch(args: &[String]) {
         Some("export") => run_export_cmd(args),
         Some("history") => run_history_cmd(args),
         Some("verify") => run_verify_cmd(args),
+        Some("skill") => std::process::exit(global_skill::run(&args[2..])),
         // Backward compatible: snipe-code --dry-run
         Some("--dry-run") => run_new_cmd(args),
         Some(other) if other.starts_with('-') => {
@@ -54,12 +57,13 @@ fn dispatch(args: &[String]) {
     }
 }
 
-const LAUNCHER_ITEMS: [&str; 6] = [
+const LAUNCHER_ITEMS: [&str; 7] = [
     "Create a new project",
     "Understand an existing project",
     "Run tests and quality checks",
     "Audit project security",
     "View help",
+    "Install global AI skill",
     "Exit",
 ];
 
@@ -100,6 +104,22 @@ fn launch_command(command: &str, arguments: &[&str]) {
 }
 
 fn run_launcher() {
+    println!(
+        r#"
+  ____  _   _ ___ ____  _____        ____ ___  ____  _____
+ / ___|| \ | |_ _|  _ \| ____|      / ___/ _ \|  _ \| ____|
+ \___ \|  \| || || |_) |  _| _____ | |  | | | | | | |  _|
+  ___) | |\  || ||  __/| |__|_____|| |__| |_| | |_| | |___
+ |____/|_| \_|___|_|   |_____|      \____\___/|____/|_____|
+
+ SNIPE-CODE v{}  |  Author: Athalla
+ Create projects. Explore code. Check quality and security.
+
+ Quick commands: new  |  analyze  |  scan  |  verify  |  help
+ Run `snipe-code help <command>` for details.
+"#,
+        env!("CARGO_PKG_VERSION")
+    );
     loop {
         match select("What would you like to do?", &LAUNCHER_ITEMS) {
             Some(0) => launch_command("new", &[]),
@@ -112,7 +132,10 @@ fn run_launcher() {
             }
             Some(3) => launch_security(),
             Some(4) => launch_command("help", &[]),
-            Some(5) | None => return,
+            Some(5) => {
+                global_skill::run(&[]);
+            }
+            Some(6) | None => return,
             _ => unreachable!(),
         }
     }
@@ -863,6 +886,7 @@ fn print_command_help(cmd: &str) {
             "snipe-code history list | show <run-id> | export <run-id> --output <FILE> | delete <project-id>"
         ),
         "verify" => println!("{}", VERIFY_HELP),
+        "skill" => println!("{}", global_skill::HELP),
         "new" => println!("{}", NEW_HELP),
         "help" => print_help(),
         _ => {
@@ -890,6 +914,7 @@ COMMANDS
     qa         Plan reviewable test cases from structured requirements
     export     Export a saved scan to an explicit directory
     history    List, view, export, or delete local scan history
+    skill      Preview or install a global agent skill
     verify     Run declared project quality gates
     help       Show help (aliases: --help, -h)
     version    Show the compiled version (alias: --version)
