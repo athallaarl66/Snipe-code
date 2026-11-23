@@ -1,69 +1,26 @@
 # Changelog
 
-## 0.6.0 (unreleased)
+## 0.6.1
+
+### Added
+
+- `snipe-code skill [agent] [--install]` previews or installs a global `snipe-code` agent skill for claude, opencode, codex, hermes, cursor, github-copilot, windsurf, antigravity, and gemini-cli. Existing skill directories are never overwritten.
+- The interactive launcher shows an ASCII banner with the compiled version and author, and adds an "Install global AI skill" entry.
+
+### Changed
+
+- README install guidance names the built executable path, the PowerShell call operator, and a first manual check on a disposable project.
+
+### Fixed
+
+- Release quality gate installs `pdftotext` before running the test suite, so the PDF report parity tests stop failing on the runner.
+
+## 0.6.0
 
 ### Added
 
 - Interactive launcher and task-specific AI agent workflows.
-- Opt-in local scan history a33s
-  Checking time-core v0.1.2
-  Checking jpeg-decoder v0.3.2
-  Checking color_quant v1.1.0
-  Checking gif v0.13.3
-  Checking time v0.3.36
-  Checking tiff v0.9.1
-  Checking png v0.17.16
-  Checking hashbrown v0.14.5
-  Compiling serde_derive v1.0.229
-  Checking pom v3.4.0
-  Checking block-buffer v0.10.4
-  Checking crypto-common v0.1.7
-  Checking encoding_rs v0.8.35
-  Checking ttf-parser v0.19.2
-  Checking log v0.4.33
-  Checking fastrand v2.5.0
-  Checking linked-hash-map v0.5.6
-  Checking bytemuck v1.25.2
-  Checking md5 v0.7.0
-  Checking unicode-width v0.2.2
-  Checking lopdf v0.31.0
-  Checking console v0.15.11
-  Checking image v0.24.9
-  Checking tempfile v3.27.0
-  Checking owned_ttf_parser v0.19.0
-  Checking digest v0.10.7
-  Checking hashlink v0.9.1
-  Checking zip v0.6.6
-  Compiling include_dir_macros v0.7.4
-  Checking cpufeatures v0.2.17
-  Checking fallible-streaming-iterator v0.1.9
-  Checking xml-rs v0.8.29
-  Checking zeroize v1.9.0
-  Checking shell-words v1.1.1
-  Checking smallvec v1.16.5
-  Checking fallible-iterator v0.3.0
-  Checking base64 v0.13.1
-  Checking dialoguer v0.11.0
-  Checking include_dir v0.7.4
-  Checking docx-rs v0.4.15
-  Checking sha2 v0.10.9
-  Checking printpdf v0.7.0
-  Checking uuid v1.26.1
-  Checking rusqlite v0.32.1
-  Checking snipe-code v0.5.3 (/home/runner/work/Snipe-code/Snipe-code)
-  error: couldn't read `tests/../docs/features/quality-gates.md`: No such file or directory (os error 2)
-  --> tests/quality_integration_test.rs:368:16
-  |
-  368 | let docs = include_str!("../docs/features/quality-gates.md").replace("\r\n", "\n");
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the macro `include_str` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error: could not compile `snipe-code` (test "quality_integration_test") due to 1 previous error
-warning: build failed, waiting for other jobs to finish...
-Error: Process completed with exit code 101.
-nd versioned scan results.
-
+- Opt-in local scan history and versioned scan results.
 - Rust SAST candidates, offline npm advisory analysis, and quality metrics with baseline comparisons.
 - Read-only QA planning and Postman collection drafts.
 
