@@ -8,23 +8,24 @@ A Rust CLI that scaffolds projects, reads an existing codebase, and audits it fo
 security risks. Core scaffolding and analysis do not require an AI service or API key.
 Verification runs external project commands, which may access the network.
 
-This checkout is version `0.6.0`. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+This checkout is version `0.6.1`. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-Distribution status checked 2026-11-19: GitHub release `v0.6.0` is published but
-has no binary assets. Its Windows and Linux archive URLs return 404, so the default
-latest-release installers cannot install it yet. Check the
-[release assets](https://github.com/athallaarl66/Snipe-code/releases/tag/v0.6.0)
-again, or use the local build below. The newest crate on crates.io is `0.5.3`, not
-`0.6.0`; the container's `v0.5.3` tag was checked on 2026-10-21.
+Distribution status checked 2026-11-23: GitHub release `v0.6.0` is published with
+no binary assets, and `v0.6.1` is not published yet, so the latest-release installers
+cannot install a `0.6` version until the release job publishes archives. Check the
+[release assets](https://github.com/athallaarl66/Snipe-code/releases) before using an
+installer, or use the local build below. The newest crate on crates.io is `0.5.3`;
+the container's `v0.5.3` tag was checked on 2026-10-21.
 
 ## Install
 
 ### Shell installer
 
 The no Rust toolchain channel requires a release with the matching archive and
-checksum. By default it reads the latest release; while `v0.6.0` has no assets, use
-[Build from source](#build-from-source) instead. When assets are available, download
-the script into the current directory, inspect it, then run that same file.
+checksum. By default it reads the latest release; while the `0.6` releases have no
+assets, use [Build from source](#build-from-source) instead. When assets are
+available, download the script into the current directory, inspect it, then run that
+same file.
 
 Linux and macOS:
 
